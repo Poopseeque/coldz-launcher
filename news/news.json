@@ -1,0 +1,38 @@
+{
+  "items": [
+    {
+      "id": "opening-2026-11-11",
+      "date": "2026-11-11",
+      "pinned": true,
+      "title": {
+        "ru": "Открытие сервера 11 ноября",
+        "en": "Server opens on November 11",
+        "es": "El servidor abre el 11 de noviembre",
+        "pt-BR": "O servidor abre em 11 de novembro"
+      },
+      "body": {
+        "ru": "Зомби. Холод. Другие игроки. Ждём всех 11.11 вечером — нажмите «Играть», когда сервер будет онлайн.",
+        "en": "Zombies. Cold. Other players. See you on 11.11 in the evening — press Play when the server is online.",
+        "es": "Zombis. Frío. Otros jugadores. Os esperamos el 11.11 por la tarde: pulsa Jugar cuando el servidor esté en línea.",
+        "pt-BR": "Zumbis. Frio. Outros jogadores. Esperamos você em 11.11 à noite — clique em Jogar quando o servidor estiver online."
+      },
+      "url": "https://discord.gg/FUMCMhdNH7"
+    },
+    {
+      "id": "launcher-welcome",
+      "date": "2026-11-06",
+      "title": {
+        "ru": "Лаунчер COLDZ",
+        "en": "COLDZ launcher",
+        "es": "Lanzador de COLDZ",
+        "pt-BR": "Launcher do COLDZ"
+      },
+      "body": {
+        "ru": "Лаунчер показывает, работает ли сервер, сколько игроков онлайн, и подключает к COLDZ одной кнопкой через FiveM.",
+        "en": "The launcher shows whether the server is up and how many players are online, and connects you to COLDZ through FiveM in one click.",
+        "es": "El lanzador muestra si el servidor está activo y cuántos jugadores hay, y te conecta a COLDZ con FiveM en un clic.",
+        "pt-BR": "O launcher mostra se o servidor está no ar e quantos jogadores estão online, e conecta você ao COLDZ pelo FiveM com um clique."
+      }
+    }
+  ]
+}

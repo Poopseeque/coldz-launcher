@@ -1,0 +1,14 @@
+{
+  "serverName": "COLDZ",
+  "serverAddress": "127.0.0.1:30120",
+  "maxPlayers": 48,
+  "ownerEmail": "aaenlly@gmail.com",
+  "fivemDownloadUrl": "https://fivem.net/",
+  "newsUrl": "https://raw.githubusercontent.com/Poopseeque/coldz-launcher/main/news/news.json",
+  "links": {
+    "telegram": "",
+    "vk": "https://vk.ru/coldz_server",
+    "youtube": "https://youtube.com/@coldzgta5",
+    "discord": "https://discord.gg/FUMCMhdNH7"
+  }
+}

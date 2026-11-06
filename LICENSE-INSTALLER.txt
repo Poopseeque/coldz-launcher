@@ -1,0 +1,35 @@
+﻿COLDZ Launcher
+
+COLDZ IS NOT APPROVED, SPONSORED, OR ENDORSED BY ROCKSTAR GAMES.
+
+Contact / Контакт: aaenlly@gmail.com
+
+RU
+Лаунчер COLDZ — бесплатная программа сервера COLDZ. Она показывает статус
+сервера и новости и запускает установленный у вас клиент FiveM с подключением
+к серверу COLDZ. Лаунчер не содержит FiveM и не изменяет файлы FiveM или игры.
+FiveM устанавливается отдельно с официального сайта https://fivem.net/ и
+работает по своим правилам (Cfx.re / Rockstar Games).
+Лаунчер сам проверяет и устанавливает свои обновления.
+
+EN
+The COLDZ Launcher is a free program of the COLDZ server. It shows the server
+status and news, and starts your installed FiveM client connected to the COLDZ
+server. The launcher does not contain FiveM and does not modify FiveM or game
+files. FiveM is installed separately from the official site https://fivem.net/
+and is governed by its own terms (Cfx.re / Rockstar Games).
+The launcher checks for and installs its own updates.
+
+ES
+El lanzador de COLDZ es un programa gratuito del servidor COLDZ. Muestra el
+estado del servidor y las noticias e inicia tu cliente FiveM instalado
+conectado al servidor COLDZ. No contiene FiveM ni modifica archivos de FiveM o
+del juego. FiveM se instala por separado desde https://fivem.net/.
+
+PT-BR
+O launcher do COLDZ é um programa gratuito do servidor COLDZ. Ele mostra o
+status do servidor e as notícias e abre o seu cliente FiveM instalado já
+conectando ao servidor COLDZ. Ele não contém o FiveM e não altera arquivos do
+FiveM ou do jogo. O FiveM é instalado separadamente em https://fivem.net/.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.

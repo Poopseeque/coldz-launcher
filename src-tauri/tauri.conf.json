@@ -1,0 +1,65 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "COLDZ Launcher",
+  "mainBinaryName": "COLDZ Launcher",
+  "version": "0.1.0",
+  "identifier": "com.coldz.launcher",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "COLDZ",
+        "width": 1040,
+        "height": 640,
+        "minWidth": 1040,
+        "minHeight": 640,
+        "resizable": false,
+        "maximizable": false,
+        "decorations": false,
+        "center": true,
+        "backgroundColor": "#0b0d11"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "createUpdaterArtifacts": true,
+    "publisher": "COLDZ",
+    "copyright": "COLDZ — aaenlly@gmail.com. COLDZ IS NOT APPROVED, SPONSORED, OR ENDORSED BY ROCKSTAR GAMES.",
+    "shortDescription": "COLDZ Launcher",
+    "longDescription": "Launcher for the COLDZ server. Starts the FiveM client and connects to COLDZ. COLDZ IS NOT APPROVED, SPONSORED, OR ENDORSED BY ROCKSTAR GAMES.",
+    "licenseFile": "../LICENSE-INSTALLER.txt",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true },
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["Russian", "English", "Spanish", "PortugueseBR"],
+        "displayLanguageSelector": false,
+        "installerIcon": "icons/icon.ico"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ1M0U3MUI3NTgwNDJCNDMKUldSREt3Ull0M0UrUlRZNG1jNXoyQ0VBTFdaYktJRWQxaU5lT1M4eXF1M3pldlE0bWNqWDlsa28K",
+      "endpoints": [
+        "https://github.com/Poopseeque/coldz-launcher/releases/latest/download/latest.json"
+      ],
+      "windows": { "installMode": "passive" }
+    }
+  }
+}

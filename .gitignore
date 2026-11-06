@@ -1,0 +1,10 @@
+node_modules/
+src-tauri/target/
+src-tauri/gen/
+dist/
+release/
+# Signing keys must never be committed
+*.key
+*.pfx
+*.p12
+.env

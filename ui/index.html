@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>COLDZ</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="bg" aria-hidden="true"></div>
+  <canvas id="snow" aria-hidden="true"></canvas>
+
+  <header class="titlebar" data-tauri-drag-region>
+    <div class="titlebar__name" data-tauri-drag-region>COLDZ <span data-tauri-drag-region>LAUNCHER</span> <small id="version" data-tauri-drag-region></small></div>
+    <div class="titlebar__tools">
+      <select id="lang" aria-label="Language">
+        <option value="ru">RU</option>
+        <option value="en">EN</option>
+        <option value="es">ES</option>
+        <option value="pt-BR">PT-BR</option>
+      </select>
+      <button class="winbtn" id="btn-min" aria-label="Minimize" data-i18n-title="minimize">
+        <svg viewBox="0 0 12 12"><path d="M2 6.5h8" /></svg>
+      </button>
+      <button class="winbtn winbtn--close" id="btn-close" aria-label="Close" data-i18n-title="close">
+        <svg viewBox="0 0 12 12"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7" /></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="hero">
+      <div class="logo"><img src="assets/logo.png" alt="COLDZ"></div>
+      <p class="tagline" data-i18n="tagline"></p>
+
+      <div class="status" id="status" data-state="checking">
+        <div class="status__cell status__cell--state">
+          <span class="dot"></span>
+          <span id="status-text" data-i18n="checking"></span>
+        </div>
+        <div class="status__cell">
+          <span class="status__label" data-i18n="players"></span>
+          <span class="status__value"><b id="players">—</b> / <span id="max-players">48</span></span>
+        </div>
+        <div class="status__cell">
+          <span class="status__label" data-i18n="ping"></span>
+          <span class="status__value"><b id="ping">—</b> <span data-i18n="ms"></span></span>
+        </div>
+      </div>
+
+      <button class="play" id="play" disabled>
+        <span class="play__text" data-i18n="play"></span>
+      </button>
+
+      <div class="fivem" id="fivem" data-state="checking">
+        <p class="fivem__text" id="fivem-text"></p>
+        <div class="fivem__actions" id="fivem-actions" hidden>
+          <button class="btn btn--accent" id="btn-download" data-i18n="download_fivem"></button>
+          <button class="btn" id="btn-recheck" data-i18n="recheck"></button>
+        </div>
+      </div>
+
+      <div class="update" id="update" hidden>
+        <span id="update-text"></span>
+        <button class="btn btn--accent" id="btn-update" data-i18n="update_install"></button>
+      </div>
+    </section>
+
+    <aside class="news">
+      <h2 data-i18n="news"></h2>
+      <p class="news__note" id="news-note" hidden></p>
+      <div class="news__list" id="news-list"></div>
+    </aside>
+  </main>
+
+  <footer class="footer">
+    <nav class="socials" id="socials">
+      <button class="chip" data-link="telegram">Telegram</button>
+      <button class="chip" data-link="vk">VK</button>
+      <button class="chip" data-link="youtube">YouTube</button>
+      <button class="chip" data-link="discord">Discord</button>
+    </nav>
+    <div class="legal">
+      <p class="legal__disclaimer">COLDZ IS NOT APPROVED, SPONSORED, OR ENDORSED BY ROCKSTAR GAMES.</p>
+      <p class="legal__contact"><span data-i18n="contact"></span>: <a href="#" id="email"></a></p>
+    </div>
+  </footer>
+
+  <script src="i18n.js"></script>
+  <script src="snow.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
