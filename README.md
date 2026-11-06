@@ -78,12 +78,17 @@ release\<версия>\latest.json                            ← для авт�
   "maxPlayers": 48,
   "ownerEmail": "aaenlly@gmail.com",
   "newsUrl": "https://raw.githubusercontent.com/Poopseeque/coldz-launcher/main/news/news.json",
-  "links": { "telegram": "", "vk": "...", "youtube": "...", "discord": "..." }
+  "links": [
+    { "icon": "vk", "label": "ВКонтакте", "url": "https://vk.ru/coldz_server" },
+    { "icon": "facebook", "label": "Facebook (English)", "badge": "EN", "url": "https://www.facebook.com/..." },
+    { "icon": "tiktok", "label": "TikTok", "url": "" }
+  ]
 }
 ```
 
 - **`serverAddress`** — адрес для кнопки «Играть» и статуса. Можно `IP:порт` (`203.0.113.10:30120`) или код `cfx.re/join/abc123`. Сейчас стоит `127.0.0.1:30120` — это сервер на вашем ПК, у других игроков он работать **не будет**. Когда сервер переедет на арендованную машину — впишите её адрес и выпустите новую версию (раздел 5).
-- Ссылка с пустым значением (`""`) просто не показывается — так сейчас с Telegram. Как появится канал — впишите `https://t.me/...`.
+- **`links`** — кнопки соцсетей внизу окна, в том же порядке. Ссылок можно сколько угодно. `icon` — значок: `vk`, `facebook`, `youtube`, `tiktok`, `discord`, `telegram`, `instagram`, `x`; `label` — подсказка при наведении; `badge` — маленькая подпись на значке (необязательно, например `EN`/`PT`). Только ссылки `https://`.
+- Ссылка с пустым `url` (`""`) просто не показывается — так сейчас с Telegram. Как появится канал — впишите `https://t.me/...`.
 - После любой правки этого файла — пересобрать и выпустить новую версию: настройки вшиваются в лаунчер.
 
 ## 4. Новости
@@ -165,7 +170,7 @@ npm run release -- -Notes "..."
 ```
 launcher.config.json      адрес сервера, почта, ссылки, адрес новостей
 news/news.json            новости (на GitHub — живые, в лаунчере — запасная копия)
-ui/                       окно лаунчера: index.html, style.css, app.js, i18n.js (тексты на 4 языках)
+ui/                       окно лаунчера: index.html, style.css, app.js, i18n.js (тексты на 4 языках), icons.js (значки соцсетей, Simple Icons, CC0)
 src-tauri/src/lib.rs      поиск FiveM, запуск, статус сервера, новости, обновление
 src-tauri/tauri.conf.json окно, установщик, адрес обновлений и публичный ключ
 scripts/build.ps1         сборка одной командой (npm run build / npm run release)

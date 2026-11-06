@@ -242,6 +242,34 @@
   }
 
   // ------------------------------------------------------------ links
+  const SVG_NS = "http://www.w3.org/2000/svg";
+
+  // Social buttons from launcher.config.json "links"; empty url = not shown.
+  function renderLinks() {
+    const nav = $("socials");
+    nav.replaceChildren();
+    for (const link of cfg.links || []) {
+      if (!link.url) continue;
+      const btn = el("button", "social");
+      btn.title = link.label;
+      btn.setAttribute("aria-label", link.label);
+      const path = window.ICONS && ICONS[link.icon];
+      if (path) {
+        const svg = document.createElementNS(SVG_NS, "svg");
+        svg.setAttribute("viewBox", "0 0 24 24");
+        const p = document.createElementNS(SVG_NS, "path");
+        p.setAttribute("d", path);
+        svg.append(p);
+        btn.append(svg);
+      } else {
+        btn.textContent = link.label.slice(0, 2).toUpperCase();
+      }
+      if (link.badge) btn.append(el("span", "social__badge", link.badge));
+      btn.onclick = () => openExternal(link.url);
+      nav.append(btn);
+    }
+  }
+
   function openExternal(url) {
     invoke("open_external", { url }).catch((e) => console.warn("open link:", e));
   }
@@ -265,11 +293,7 @@
     $("email").textContent = cfg.ownerEmail;
     $("email").onclick = (e) => { e.preventDefault(); openExternal("mailto:" + cfg.ownerEmail); };
     $("btn-download").onclick = () => openExternal(cfg.fivemDownloadUrl);
-    document.querySelectorAll("[data-link]").forEach((b) => {
-      const url = cfg.links[b.dataset.link];
-      b.hidden = !url;
-      b.onclick = () => openExternal(url);
-    });
+    renderLinks();
 
     await refreshFivem();
     refreshStatus();

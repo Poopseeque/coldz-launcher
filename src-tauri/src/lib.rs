@@ -26,15 +26,16 @@ const PING_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
-struct Links {
+struct Link {
+    /// Icon name from ui/icons.js: vk, facebook, youtube, tiktok, discord, telegram, instagram, x.
+    icon: String,
+    label: String,
+    /// Optional small text on the icon, e.g. "EN" / "PT".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    badge: Option<String>,
+    /// Empty = button hidden.
     #[serde(default)]
-    telegram: String,
-    #[serde(default)]
-    vk: String,
-    #[serde(default)]
-    youtube: String,
-    #[serde(default)]
-    discord: String,
+    url: String,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -46,7 +47,8 @@ struct Config {
     owner_email: String,
     fivem_download_url: String,
     news_url: String,
-    links: Links,
+    #[serde(default)]
+    links: Vec<Link>,
 }
 
 fn config() -> &'static Config {
@@ -510,6 +512,9 @@ mod tests {
         let c = config();
         assert!(!c.server_address.is_empty());
         assert!(!c.owner_email.is_empty());
+        for l in &c.links {
+            assert!(l.url.is_empty() || l.url.starts_with("https://"), "link must be https: {}", l.url);
+        }
         let news: serde_json::Value = serde_json::from_str(BUNDLED_NEWS).unwrap();
         assert!(valid_news(&news));
     }
