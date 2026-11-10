@@ -1,4 +1,97 @@
 {
+  "serverAddress": "",
+  "rules": [
+    {
+      "id": "fair",
+      "title": {
+        "ru": "Честная игра",
+        "en": "Fair play",
+        "es": "Juego limpio",
+        "pt-BR": "Jogo limpo"
+      },
+      "text": {
+        "ru": "Читы, макросы, скрипты, сторонние программы и баги, дающие преимущество, запрещены: бан. Нашли баг: напишите о нём через /report.",
+        "en": "Cheats, macros, scripts, third-party software and any bug that gives an advantage are banned. Found a bug? Report it with /report.",
+        "es": "Trampas, macros, scripts, programas de terceros y cualquier bug que dé ventaja están prohibidos: ban. ¿Encontraste un bug? Avisa con /report.",
+        "pt-BR": "Cheats, macros, scripts, programas de terceiros e qualquer bug que dê vantagem são proibidos: ban. Achou um bug? Avise pelo /report."
+      }
+    },
+    {
+      "id": "chat",
+      "title": {
+        "ru": "Общение",
+        "en": "Chat",
+        "es": "Chat",
+        "pt-BR": "Chat"
+      },
+      "text": {
+        "ru": "Ругаться можно. Оскорблять родных и семью нельзя: мут до месяца, дальше бан.",
+        "en": "Swearing is fine. Insulting someone's family is not: a mute for up to a month, then a ban.",
+        "es": "Puedes decir palabrotas. Insultar a la familia de alguien, no: silencio de hasta un mes y después ban.",
+        "pt-BR": "Pode xingar. Ofender a família de alguém, não: mute de até um mês e depois ban."
+      }
+    },
+    {
+      "id": "scam",
+      "title": {
+        "ru": "Без обмана",
+        "en": "No scams",
+        "es": "Sin estafas",
+        "pt-BR": "Sem golpes"
+      },
+      "text": {
+        "ru": "Не выдавайте себя за администрацию, не продавайте игровые вещи за реальные деньги и не обманывайте игроков на деньги: бан.",
+        "en": "Don't pose as an admin, sell in-game items for real money or scam players for money: ban.",
+        "es": "No te hagas pasar por administrador, no vendas objetos del juego por dinero real ni estafes a otros jugadores: ban.",
+        "pt-BR": "Não se passe por administrador, não venda itens do jogo por dinheiro real nem aplique golpes em outros jogadores: ban."
+      }
+    },
+    {
+      "id": "dupe",
+      "title": {
+        "ru": "Без дюпа",
+        "en": "No duping",
+        "es": "Sin duplicar",
+        "pt-BR": "Sem dupar"
+      },
+      "text": {
+        "ru": "Размножать вещи через баги (дюп) запрещено: бан. Нашли такой баг: напишите о нём через /report.",
+        "en": "Duplicating items through bugs (duping) is banned. Found such a bug? Report it with /report.",
+        "es": "Duplicar objetos con bugs está prohibido: ban. ¿Encontraste un bug así? Avisa con /report.",
+        "pt-BR": "Duplicar itens com bugs é proibido: ban. Achou um bug assim? Avise pelo /report."
+      }
+    },
+    {
+      "id": "cheaters",
+      "title": {
+        "ru": "Игра с читером",
+        "en": "Playing with a cheater",
+        "es": "Jugar con un tramposo",
+        "pt-BR": "Jogar com cheater"
+      },
+      "text": {
+        "ru": "Играете в одной группе с читером: наказание получит вся группа.",
+        "en": "Play in a group with a cheater and the whole group gets punished.",
+        "es": "Si juegas en grupo con un tramposo, se castiga a todo el grupo.",
+        "pt-BR": "Jogou em grupo com um cheater: o grupo todo é punido."
+      }
+    },
+    {
+      "id": "assets",
+      "title": {
+        "ru": "Файлы сервера",
+        "en": "Server files",
+        "es": "Archivos del servidor",
+        "pt-BR": "Arquivos do servidor"
+      },
+      "text": {
+        "ru": "Вытаскивать модели и файлы сервера запрещено.",
+        "en": "Extracting the server's models and files is forbidden.",
+        "es": "Está prohibido extraer los modelos y archivos del servidor.",
+        "pt-BR": "É proibido extrair os modelos e arquivos do servidor."
+      }
+    }
+  ],
   "items": [
     {
       "id": "opening-2026-11-11",
@@ -11,12 +104,12 @@
         "pt-BR": "O servidor abre em 11 de novembro"
       },
       "body": {
-        "ru": "Зомби. Холод. Другие игроки. Ждём всех 11.11 вечером — нажмите «Играть», когда сервер будет онлайн.",
-        "en": "Zombies. Cold. Other players. See you on 11.11 in the evening — press Play when the server is online.",
-        "es": "Zombis. Frío. Otros jugadores. Os esperamos el 11.11 por la tarde: pulsa Jugar cuando el servidor esté en línea.",
-        "pt-BR": "Zumbis. Frio. Outros jogadores. Esperamos você em 11.11 à noite — clique em Jogar quando o servidor estiver online."
+        "ru": "COLDZ открывается 11.11.2026. Зима не кончится. Ищите тепло, еду и патроны, пока вас не нашли мёртвые или живые.\nКогда сервер будет онлайн, нажмите «Играть». Перед входом прочитайте правила. Новости открытия — в группе ВКонтакте.",
+        "en": "COLDZ opens on 11.11.2026. Winter never ends. Find warmth, food and ammo before the dead or the living find you.\nWhen the server is online, press Play. Please read the rules before you join. Opening news is posted in our VK group.",
+        "es": "COLDZ abre el 11.11.2026. El invierno no termina. Busca calor, comida y munición antes de que te encuentren los muertos o los vivos.\nCuando el servidor esté en línea, pulsa Jugar. Lee las reglas antes de entrar. Las novedades de la apertura, en nuestro grupo de VK.",
+        "pt-BR": "O COLDZ abre em 11.11.2026. O inverno não acaba. Encontre calor, comida e munição antes que os mortos ou os vivos encontrem você.\nQuando o servidor estiver online, clique em Jogar. Leia as regras antes de entrar. As novidades da abertura ficam no nosso grupo do VK."
       },
-      "url": "https://discord.gg/FUMCMhdNH7"
+      "url": "https://vk.ru/coldz_server"
     },
     {
       "id": "launcher-welcome",
