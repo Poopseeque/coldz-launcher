@@ -4,12 +4,13 @@
 //!   * looks for an installed FiveM (registry + %LOCALAPPDATA%\FiveM),
 //!   * starts the real FiveM client with `fivem://connect/<address>`,
 //!   * reads the public server endpoints (/dynamic.json, /players.json, /info.json),
-//!   * downloads a news JSON file,
+//!   * downloads a news JSON file (it may also carry the server address and the rules,
+//!     so both can be changed without a new launcher build),
 //!   * updates itself through the Tauri updater (signed with our own key).
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::{OnceLock, RwLock};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_opener::OpenerExt;
@@ -42,6 +43,9 @@ struct Link {
 #[serde(rename_all = "camelCase")]
 struct Config {
     server_name: String,
+    /// Built-in address. Empty = not known yet (the launcher then waits for
+    /// `serverAddress` in news.json). A non-empty `serverAddress` in news.json wins.
+    #[serde(default)]
     server_address: String,
     max_players: u32,
     owner_email: String,
@@ -91,6 +95,68 @@ fn connect_url(t: &Target) -> String {
     match t {
         Target::Direct { host, port } => format!("fivem://connect/{host}:{port}"),
         Target::JoinCode(code) => format!("fivem://connect/cfx.re/join/{code}"),
+    }
+}
+
+/// Accepts only a sane `host:port`, host name, IP or cfx.re join code, so a typo
+/// (or anything strange) in news.json can never end up in the fivem:// link.
+fn valid_address(raw: &str) -> bool {
+    let raw = raw.trim();
+    if raw.is_empty() || raw.len() > 100 {
+        return false;
+    }
+    if let Some((_, p)) = raw.rsplit_once(':') {
+        if !raw.contains("://") && p.parse::<u16>().map_or(true, |n| n == 0) {
+            return false;
+        }
+    }
+    match parse_address(raw) {
+        Target::JoinCode(code) => {
+            !code.is_empty() && code.len() <= 16 && code.chars().all(|c| c.is_ascii_alphanumeric())
+        }
+        Target::Direct { host, port } => {
+            port != 0
+                && !host.is_empty()
+                && host.len() <= 253
+                && host.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
+                && !host.starts_with(['.', '-'])
+        }
+    }
+}
+
+/// Address from news.json (remote, cached or bundled). `None` = use the built-in one.
+fn remote_address() -> &'static RwLock<Option<String>> {
+    static ADDR: OnceLock<RwLock<Option<String>>> = OnceLock::new();
+    ADDR.get_or_init(|| RwLock::new(None))
+}
+
+/// Reads `serverAddress` from a news file. Missing, empty or invalid = back to the built-in address.
+fn apply_feed(v: &serde_json::Value) {
+    let addr = v
+        .get("serverAddress")
+        .and_then(|a| a.as_str())
+        .map(str::trim)
+        .filter(|a| valid_address(a))
+        .map(str::to_string);
+    if let Ok(mut slot) = remote_address().write() {
+        *slot = addr;
+    }
+}
+
+/// The address the launcher really uses, or `None` if it is not set anywhere yet.
+fn effective_address() -> Option<String> {
+    if let Some(a) = remote_address().read().ok().and_then(|g| g.clone()) {
+        return Some(a);
+    }
+    let built_in = config().server_address.trim();
+    valid_address(built_in).then(|| built_in.to_string())
+}
+
+/// What players see and type into F8: `1.2.3.4:30120` or `cfx.re/join/abc123`.
+fn display_address(t: &Target) -> String {
+    match t {
+        Target::Direct { host, port } => format!("{host}:{port}"),
+        Target::JoinCode(code) => format!("cfx.re/join/{code}"),
     }
 }
 
@@ -174,7 +240,10 @@ fn detect_fivem() -> FivemInfo {
 /// Returns the connect link on success, or an error code for the UI.
 #[tauri::command]
 fn play(app: AppHandle) -> Result<String, String> {
-    let url = connect_url(&parse_address(&config().server_address));
+    let Some(address) = effective_address() else {
+        return Err("no_address".into());
+    };
+    let url = connect_url(&parse_address(&address));
     let Some(exe) = find_fivem() else {
         return Err("fivem_missing".into());
     };
@@ -211,6 +280,8 @@ struct Status {
     players: u32,
     max_players: u32,
     ping_ms: Option<u32>,
+    /// Address in use (for the "copy" line and F8 `connect`). Empty = not set yet.
+    address: String,
 }
 
 fn http() -> reqwest::Client {
@@ -275,6 +346,7 @@ async fn status_direct(host: &str, port: u16) -> Status {
             players: d.get("clients").and_then(as_u32).unwrap_or(0),
             max_players: d.get("sv_maxclients").and_then(as_u32).unwrap_or(max_default),
             ping_ms: ping,
+            ..Default::default()
         };
     }
     // Older servers: count /players.json and read the limit from /info.json.
@@ -289,6 +361,7 @@ async fn status_direct(host: &str, port: u16) -> Status {
                 .and_then(as_u32)
                 .unwrap_or(max_default),
             ping_ms: ping,
+            ..Default::default()
         },
         None => Status { max_players: max_default, ..Default::default() },
     }
@@ -314,15 +387,22 @@ async fn status_join_code(code: &str) -> Status {
         players: data.get("clients").and_then(as_u32).unwrap_or(0),
         max_players: data.get("sv_maxclients").and_then(as_u32).unwrap_or(max_default),
         ping_ms: ping,
+        ..Default::default()
     }
 }
 
 #[tauri::command]
 async fn server_status() -> Status {
-    match parse_address(&config().server_address) {
-        Target::Direct { host, port } => status_direct(&host, port).await,
-        Target::JoinCode(code) => status_join_code(&code).await,
-    }
+    let Some(address) = effective_address() else {
+        return Status { max_players: config().max_players, ..Default::default() };
+    };
+    let target = parse_address(&address);
+    let mut status = match &target {
+        Target::Direct { host, port } => status_direct(host, *port).await,
+        Target::JoinCode(code) => status_join_code(code).await,
+    };
+    status.address = display_address(&target);
+    status
 }
 
 // ---------------------------------------------------------------- news
@@ -347,20 +427,37 @@ async fn fetch_news(app: AppHandle) -> News {
                 let _ = std::fs::create_dir_all(c.parent().unwrap());
                 let _ = std::fs::write(c, v.to_string());
             }
-            return News { source: "remote", data: v };
+            apply_feed(&v);
+            return News { source: "remote", data: with_rules(v) };
         }
     }
+    let (source, data) = local_news(cache);
+    apply_feed(&data);
+    News { source, data: with_rules(data) }
+}
+
+/// A news file without "rules" (e.g. an older one on GitHub) gets the rules built into the launcher.
+fn with_rules(mut v: serde_json::Value) -> serde_json::Value {
+    let has_rules = v.get("rules").and_then(|r| r.as_array()).map_or(false, |r| !r.is_empty());
+    if !has_rules {
+        let bundled: serde_json::Value = serde_json::from_str(BUNDLED_NEWS).unwrap_or_default();
+        if let (Some(rules), Some(obj)) = (bundled.get("rules"), v.as_object_mut()) {
+            obj.insert("rules".into(), rules.clone());
+        }
+    }
+    v
+}
+
+/// Last downloaded news, or the copy built into the launcher.
+fn local_news(cache: Option<PathBuf>) -> (&'static str, serde_json::Value) {
     if let Some(v) = cache
         .and_then(|c| std::fs::read_to_string(c).ok())
         .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
         .filter(valid_news)
     {
-        return News { source: "cache", data: v };
+        return ("cache", v);
     }
-    News {
-        source: "bundled",
-        data: serde_json::from_str(BUNDLED_NEWS).unwrap_or_default(),
-    }
+    ("bundled", serde_json::from_str(BUNDLED_NEWS).unwrap_or_default())
 }
 
 // ---------------------------------------------------------------- links
@@ -441,6 +538,12 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(PendingUpdate(Mutex::new(None)))
+        .setup(|app| {
+            // Address from the last downloaded news.json, so the status works before a new download.
+            let cache = app.path().app_cache_dir().ok().map(|d| d.join("news.json"));
+            apply_feed(&local_news(cache).1);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             get_config,
             detect_fivem,
@@ -508,14 +611,50 @@ mod tests {
     }
 
     #[test]
+    fn validates_addresses() {
+        for ok in ["1.2.3.4:30120", "play.coldz.ru", "play.coldz.ru:30121", "cfx.re/join/abc123", "abc123"] {
+            assert!(valid_address(ok), "{ok}");
+        }
+        for bad in ["", "   ", "1.2.3.4:0", "1.2.3.4:99999", "evil host:30120", "a\"b:1", "-x.ru", "x/../y:1", "1.2.3.4:30120?x"] {
+            assert!(!valid_address(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn news_address_overrides_built_in() {
+        apply_feed(&serde_json::json!({ "items": [], "serverAddress": "5.6.7.8:30120" }));
+        assert_eq!(effective_address().as_deref(), Some("5.6.7.8:30120"));
+        apply_feed(&serde_json::json!({ "items": [], "serverAddress": "bad host" }));
+        assert_ne!(effective_address().as_deref(), Some("bad host"));
+        apply_feed(&serde_json::json!({ "items": [] }));
+        let built_in = config().server_address.trim();
+        assert_eq!(effective_address(), valid_address(built_in).then(|| built_in.to_string()));
+    }
+
+    #[test]
+    fn old_news_gets_bundled_rules() {
+        let v = with_rules(serde_json::json!({ "items": [] }));
+        assert!(v.get("rules").and_then(|r| r.as_array()).map_or(false, |r| !r.is_empty()));
+        let own = with_rules(serde_json::json!({ "items": [], "rules": [{ "title": { "ru": "x" }, "text": { "ru": "y" } }] }));
+        assert_eq!(own["rules"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
     fn config_and_news_are_valid() {
         let c = config();
-        assert!(!c.server_address.is_empty());
+        assert!(c.server_address.trim().is_empty() || valid_address(&c.server_address));
         assert!(!c.owner_email.is_empty());
         for l in &c.links {
             assert!(l.url.is_empty() || l.url.starts_with("https://"), "link must be https: {}", l.url);
         }
         let news: serde_json::Value = serde_json::from_str(BUNDLED_NEWS).unwrap();
         assert!(valid_news(&news));
+        if let Some(a) = news.get("serverAddress").and_then(|a| a.as_str()) {
+            assert!(a.trim().is_empty() || valid_address(a), "news.json serverAddress: {a}");
+        }
+        for r in news.get("rules").and_then(|r| r.as_array()).into_iter().flatten() {
+            assert!(r.pointer("/title/ru").and_then(|t| t.as_str()).is_some(), "rule without ru title");
+            assert!(r.pointer("/text/ru").and_then(|t| t.as_str()).is_some(), "rule without ru text");
+        }
     }
 }

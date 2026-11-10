@@ -1,12 +1,14 @@
 // COLDZ launcher UI. All real work (FiveM, network, updates) is done in Rust
 // through invoke(); this file only draws the screen.
+// Opened in a normal browser (no Tauri), it runs on preview data so the look can be checked.
 (function () {
-  const T = window.__TAURI__;
+  const T = window.__TAURI__ || previewTauri();
   const invoke = T.core.invoke;
   const appWindow = T.window.getCurrentWindow();
   const $ = (id) => document.getElementById(id);
 
   const STATUS_EVERY_MS = 20000;
+  const FIVEM_POLL_MS = 5000;   // while FiveM is missing: notice the install by itself
   const LANGS = ["ru", "en", "es", "pt-BR"];
 
   let lang = "ru";
@@ -16,6 +18,8 @@
   let newsSource = "bundled";
   let fivemMessage = null;   // { key, until }
   let busy = false;
+  let address = "";          // address in use ("" = not published yet)
+  let tab = "news";
 
   // ------------------------------------------------------------ language
   function storageGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
@@ -43,24 +47,36 @@
     document.querySelectorAll("[data-i18n]").forEach((el) => { el.textContent = t(el.dataset.i18n); });
     document.querySelectorAll("[data-i18n-title]").forEach((el) => { el.title = t(el.dataset.i18nTitle); });
     renderStatusText();
+    renderAddress();
     renderFivem();
     renderNews();
+    renderRules();
   }
 
-  // ------------------------------------------------------------ status
-  let lastStatus = null;
-
+  // ------------------------------------------------------------ status + address
   function renderStatusText() {
-    const box = $("status");
-    const state = box.dataset.state;
-    $("status-text").textContent = t(state === "online" ? "online" : state === "offline" ? "offline" : "checking");
+    const state = $("status").dataset.state;
+    const key = { online: "online", offline: "offline", unset: "unset" }[state] || "checking";
+    $("status-text").textContent = t(key);
+  }
+
+  function renderAddress() {
+    const text = $("address-text");
+    text.replaceChildren();
+    if (address) {
+      text.append(t("address") + " ", el("b", null, address));
+    } else {
+      text.textContent = t("address_unknown");
+    }
+    $("btn-copy").hidden = !address;
+    $("btn-copy").textContent = t("copy");
   }
 
   async function refreshStatus() {
     try {
       const s = await invoke("server_status");
-      lastStatus = s;
-      $("status").dataset.state = s.online ? "online" : "offline";
+      address = s.address || "";
+      $("status").dataset.state = !address ? "unset" : s.online ? "online" : "offline";
       $("players").textContent = s.online ? s.players : "—";
       $("max-players").textContent = s.maxPlayers || (cfg && cfg.maxPlayers) || 48;
       $("ping").textContent = s.online && s.pingMs != null ? s.pingMs : "—";
@@ -68,6 +84,26 @@
       $("status").dataset.state = "offline";
     }
     renderStatusText();
+    renderAddress();
+    renderFivem();
+  }
+
+  async function copyAddress() {
+    if (!address) return;
+    let ok = false;
+    try { await navigator.clipboard.writeText(address); ok = true; } catch { /* fallback below */ }
+    if (!ok) {
+      const area = el("textarea");
+      area.value = address;
+      document.body.append(area);
+      area.select();
+      try { ok = document.execCommand("copy"); } catch { ok = false; }
+      area.remove();
+    }
+    if (ok) {
+      $("btn-copy").textContent = t("copied");
+      setTimeout(() => { $("btn-copy").textContent = t("copy"); }, 1500);
+    }
   }
 
   // ------------------------------------------------------------ FiveM + play
@@ -75,9 +111,10 @@
     const box = $("fivem");
     const text = $("fivem-text");
     const actions = $("fivem-actions");
+    $("play").disabled = busy || !fivemInstalled || !address;
     if (fivemMessage && Date.now() < fivemMessage.until) {
       box.dataset.state = "message";
-      text.textContent = t(fivemMessage.key);
+      text.textContent = t(fivemMessage.key, { a: address || "—" });
       actions.hidden = true;
       return;
     }
@@ -89,7 +126,6 @@
     box.dataset.state = fivemInstalled ? "ok" : "missing";
     text.textContent = t(fivemInstalled ? "fivem_found" : "fivem_missing");
     actions.hidden = fivemInstalled;
-    $("play").disabled = busy || !fivemInstalled;
   }
 
   async function refreshFivem() {
@@ -123,8 +159,11 @@
       if (err === "fivem_missing") {
         fivemInstalled = false;
         renderFivem();
+      } else if (err === "no_address") {
+        address = "";
+        showFivemMessage("no_address", 10000);
       } else {
-        showFivemMessage("launch_failed", 12000);
+        showFivemMessage("launch_failed", 20000);
       }
     } finally {
       // Guard against double clicks while FiveM is starting.
@@ -137,7 +176,7 @@
     }
   }
 
-  // ------------------------------------------------------------ news
+  // ------------------------------------------------------------ news + rules
   function pick(field) {
     if (field == null) return "";
     if (typeof field === "string") return field;
@@ -162,7 +201,7 @@
   function renderNews() {
     const list = $("news-list");
     const note = $("news-note");
-    note.hidden = newsSource === "remote" || !newsData;
+    note.hidden = tab !== "news" || newsSource === "remote" || !newsData;
     note.textContent = t("news_offline");
     list.replaceChildren();
     if (!newsData) return;
@@ -172,7 +211,7 @@
       .sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || String(b.date || "").localeCompare(String(a.date || "")));
 
     if (!items.length) {
-      list.append(el("div", "news__empty", t("news_empty")));
+      list.append(el("div", "panel__empty", t("news_empty")));
       return;
     }
     for (const it of items) {
@@ -201,6 +240,35 @@
     }
   }
 
+  // Rules from news.json "rules": [{ title: {ru, en, ...}, text: {ru, en, ...} }]
+  function renderRules() {
+    const box = $("rules-list");
+    box.replaceChildren();
+    const rules = (newsData && Array.isArray(newsData.rules) ? newsData.rules : [])
+      .filter((r) => pick(r.title) || pick(r.text));
+    if (!rules.length) {
+      box.append(el("div", "panel__empty", t("rules_empty")));
+      return;
+    }
+    const ol = el("ol", "rules");
+    for (const r of rules) {
+      const li = el("li");
+      const body = el("div");
+      body.append(el("b", null, pick(r.title)), el("span", null, pick(r.text)));
+      li.append(body);
+      ol.append(li);
+    }
+    box.append(ol);
+  }
+
+  function showTab(name) {
+    tab = name;
+    document.querySelectorAll(".tab").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === name)));
+    $("news-list").hidden = name !== "news";
+    $("rules-list").hidden = name !== "rules";
+    renderNews();
+  }
+
   async function loadNews() {
     try {
       const res = await invoke("fetch_news");
@@ -210,6 +278,7 @@
       newsData = { items: [] };
     }
     renderNews();
+    renderRules();
   }
 
   // ------------------------------------------------------------ updates
@@ -281,10 +350,13 @@
 
     $("lang").onchange = (e) => { lang = e.target.value; storageSet("lang", lang); applyLang(); };
     $("btn-min").onclick = () => appWindow.minimize();
+    $("btn-max").onclick = () => appWindow.toggleMaximize();
     $("btn-close").onclick = () => appWindow.close();
     $("play").onclick = play;
+    $("btn-copy").onclick = copyAddress;
     $("btn-recheck").onclick = refreshFivem;
     $("btn-update").onclick = installUpdate;
+    document.querySelectorAll(".tab").forEach((b) => { b.onclick = () => showTab(b.dataset.tab); });
     document.addEventListener("contextmenu", (e) => e.preventDefault());
 
     cfg = await invoke("get_config");
@@ -297,12 +369,53 @@
 
     await refreshFivem();
     refreshStatus();
-    loadNews();
+    // news.json may bring a new server address: check the status again right after it.
+    loadNews().then(refreshStatus);
     setTimeout(checkUpdate, 1500);
 
     setInterval(refreshStatus, STATUS_EVERY_MS);
-    window.addEventListener("focus", () => { refreshFivem(); refreshStatus(); });
+    setInterval(() => { if (!fivemInstalled && document.hasFocus()) refreshFivem(); }, FIVEM_POLL_MS);
+
+    // Endless animations pause while the window is not active (e.g. during the game).
+    const setIdle = (idle) => document.body.classList.toggle("idle", idle);
+    setIdle(!document.hasFocus());
+    window.addEventListener("focus", () => { setIdle(false); refreshFivem(); refreshStatus(); });
+    window.addEventListener("blur", () => setIdle(true));
   }
 
   init().catch((e) => console.error(e));
+
+  // ------------------------------------------------------------ browser preview
+  // Only used when the page is opened without Tauri (e.g. ui/index.html in a browser).
+  // ?fivem=0 — FiveM "not installed", ?address=0 — address not published yet.
+  function previewTauri() {
+    const q = new URLSearchParams(location.search);
+    const data = {
+      get_config: {
+        serverName: "COLDZ", maxPlayers: 48, ownerEmail: "owner@example.com", version: "preview",
+        fivemDownloadUrl: "https://fivem.net/",
+        links: [
+          { icon: "vk", label: "ВКонтакте", url: "https://vk.ru/coldz_server" },
+          { icon: "youtube", label: "YouTube", url: "https://youtube.com/@coldzgta5" },
+          { icon: "tiktok", label: "TikTok", url: "https://www.tiktok.com/@coldz_gta5" },
+          { icon: "telegram", label: "Telegram", url: "" }
+        ]
+      },
+      detect_fivem: { installed: q.get("fivem") !== "0" },
+      server_status: q.get("address") === "0"
+        ? { online: false, players: 0, maxPlayers: 48, pingMs: null, address: "" }
+        : { online: true, players: 12, maxPlayers: 48, pingMs: 34, address: "203.0.113.10:30120" },
+      check_update: null
+    };
+    const call = async (cmd) => {
+      if (cmd === "fetch_news") {
+        const r = await fetch("../news/news.json");
+        return { source: "remote", data: await r.json() };
+      }
+      if (cmd === "open_external" || cmd === "play") { console.log("[preview]", cmd); return "ok"; }
+      return data[cmd];
+    };
+    const win = { minimize: async () => {}, toggleMaximize: async () => {}, close: async () => {} };
+    return { core: { invoke: call }, window: { getCurrentWindow: () => win }, event: { listen: async () => () => {} } };
+  }
 })();

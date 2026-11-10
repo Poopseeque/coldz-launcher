@@ -7,8 +7,10 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!-- Same look as the server loading screen (winter-server: resources/[z]/z_loadscreen): black, thin COLDZ
+       with a red pulse and blood drips, black cards with a thin line, dark-red accent. -->
   <div class="bg" aria-hidden="true"></div>
-  <canvas id="snow" aria-hidden="true"></canvas>
+  <div class="vignette" aria-hidden="true"></div>
 
   <header class="titlebar" data-tauri-drag-region>
     <div class="titlebar__name" data-tauri-drag-region>COLDZ <span data-tauri-drag-region>LAUNCHER</span> <small id="version" data-tauri-drag-region></small></div>
@@ -22,6 +24,9 @@
       <button class="winbtn" id="btn-min" aria-label="Minimize" data-i18n-title="minimize">
         <svg viewBox="0 0 12 12"><path d="M2 6.5h8" /></svg>
       </button>
+      <button class="winbtn" id="btn-max" aria-label="Maximize" data-i18n-title="maximize">
+        <svg viewBox="0 0 12 12"><rect x="2.5" y="2.5" width="7" height="7" /></svg>
+      </button>
       <button class="winbtn winbtn--close" id="btn-close" aria-label="Close" data-i18n-title="close">
         <svg viewBox="0 0 12 12"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7" /></svg>
       </button>
@@ -30,8 +35,8 @@
 
   <main class="layout">
     <section class="hero">
-      <div class="logo"><img src="assets/logo.png" alt="COLDZ"></div>
-      <p class="tagline" data-i18n="tagline"></p>
+      <h1 class="mark bleed" aria-label="COLDZ"><span style="--i:0">C</span><span class="drip" style="--i:1;--d:1.7s;--len:5.5">O</span><span style="--i:2">L</span><span class="drip" style="--i:3;--d:2.3s;--len:3.6">D</span><span style="--i:4">Z</span></h1>
+      <p class="lead" data-i18n="lead"></p>
 
       <div class="status" id="status" data-state="checking">
         <div class="status__cell status__cell--state">
@@ -52,6 +57,11 @@
         <span class="play__text" data-i18n="play"></span>
       </button>
 
+      <p class="address" id="address">
+        <span id="address-text"></span>
+        <button class="address__copy" id="btn-copy" hidden data-i18n="copy"></button>
+      </p>
+
       <div class="fivem" id="fivem" data-state="checking">
         <p class="fivem__text" id="fivem-text"></p>
         <div class="fivem__actions" id="fivem-actions" hidden>
@@ -66,10 +76,14 @@
       </div>
     </section>
 
-    <aside class="news">
-      <h2 data-i18n="news"></h2>
-      <p class="news__note" id="news-note" hidden></p>
-      <div class="news__list" id="news-list"></div>
+    <aside class="panel">
+      <nav class="tabs" role="tablist">
+        <button class="tab" role="tab" id="tab-news" data-tab="news" aria-selected="true" data-i18n="news"></button>
+        <button class="tab" role="tab" id="tab-rules" data-tab="rules" aria-selected="false" data-i18n="rules"></button>
+      </nav>
+      <p class="panel__note" id="news-note" hidden></p>
+      <div class="panel__body" id="news-list" role="tabpanel" aria-labelledby="tab-news"></div>
+      <div class="panel__body" id="rules-list" role="tabpanel" aria-labelledby="tab-rules" hidden></div>
     </aside>
   </main>
 
@@ -83,7 +97,6 @@
 
   <script src="i18n.js"></script>
   <script src="icons.js"></script>
-  <script src="snow.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

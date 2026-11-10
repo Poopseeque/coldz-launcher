@@ -1,12 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "What the launcher window may do: its own commands plus moving/minimizing/closing itself.",
+  "description": "What the launcher window may do: its own commands plus moving, minimizing, maximizing and closing itself.",
   "windows": ["main"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
     "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
     "core:window:allow-close"
   ]
 }

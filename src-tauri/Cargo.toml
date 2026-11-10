@@ -1,6 +1,6 @@
 [package]
 name = "coldz-launcher"
-version = "0.1.0"
+version = "0.2.0"
 description = "COLDZ launcher: starts FiveM and connects to the COLDZ server"
 authors = ["COLDZ"]
 edition = "2021"
