@@ -1,5 +1,5 @@
 {
-  "serverAddress": "",
+  "serverAddress": "92.118.11.28:28683",
   "rules": [
     {
       "id": "fair",
@@ -98,16 +98,16 @@
       "date": "2026-11-11",
       "pinned": true,
       "title": {
-        "ru": "Открытие сервера 11 ноября",
-        "en": "Server opens on November 11",
-        "es": "El servidor abre el 11 de noviembre",
-        "pt-BR": "O servidor abre em 11 de novembro"
+        "ru": "Открытие сегодня в 18:00 по Москве",
+        "en": "We open today at 18:00 Moscow time",
+        "es": "Abrimos hoy a las 18:00, hora de Moscú",
+        "pt-BR": "Abrimos hoje às 18:00, horário de Moscou"
       },
       "body": {
-        "ru": "COLDZ открывается 11.11.2026. Зима не кончится. Ищите тепло, еду и патроны, пока вас не нашли мёртвые или живые.\nКогда сервер будет онлайн, нажмите «Играть». Перед входом прочитайте правила. Новости открытия — в группе ВКонтакте.",
-        "en": "COLDZ opens on 11.11.2026. Winter never ends. Find warmth, food and ammo before the dead or the living find you.\nWhen the server is online, press Play. Please read the rules before you join. Opening news is posted in our VK group.",
-        "es": "COLDZ abre el 11.11.2026. El invierno no termina. Busca calor, comida y munición antes de que te encuentren los muertos o los vivos.\nCuando el servidor esté en línea, pulsa Jugar. Lee las reglas antes de entrar. Las novedades de la apertura, en nuestro grupo de VK.",
-        "pt-BR": "O COLDZ abre em 11.11.2026. O inverno não acaba. Encontre calor, comida e munição antes que os mortos ou os vivos encontrem você.\nQuando o servidor estiver online, clique em Jogar. Leia as regras antes de entrar. As novidades da abertura ficam no nosso grupo do VK."
+        "ru": "COLDZ открывается сегодня, 11 ноября, в 18:00 по Москве. Зима не кончится. Ищите тепло, еду и патроны, пока вас не нашли мёртвые или живые.\nВ 18:00 нажмите «Играть». Перед входом прочитайте правила. Новости — в группе ВКонтакте.",
+        "en": "COLDZ opens today, November 11, at 18:00 Moscow time. Winter never ends. Find warmth, food and ammo before the dead or the living find you.\nAt 18:00 press Play. Please read the rules before you join. News is posted in our VK group.",
+        "es": "COLDZ abre hoy, 11 de noviembre, a las 18:00 hora de Moscú. El invierno no termina. Busca calor, comida y munición antes de que te encuentren los muertos o los vivos.\nA las 18:00 pulsa Jugar. Lee las reglas antes de entrar. Las novedades, en nuestro grupo de VK.",
+        "pt-BR": "O COLDZ abre hoje, 11 de novembro, às 18:00 no horário de Moscou. O inverno não acaba. Encontre calor, comida e munição antes que os mortos ou os vivos encontrem você.\nÀs 18:00 clique em Jogar. Leia as regras antes de entrar. As novidades ficam no nosso grupo do VK."
       },
       "url": "https://vk.ru/coldz_server"
     },
