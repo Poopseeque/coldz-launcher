@@ -247,7 +247,18 @@ fn play(app: AppHandle) -> Result<String, String> {
     let Some(exe) = find_fivem() else {
         return Err("fivem_missing".into());
     };
-    // Same thing Windows does for a fivem:// link: `FiveM.exe "<link>"`.
+    // FiveM refuses to start when its parent process is not the Windows shell or a browser
+    // ("This application should be launched directly from the shell or a web browser").
+    // So hand the fivem:// link to explorer.exe: the shell then starts FiveM itself.
+    #[cfg(windows)]
+    {
+        let windir = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".into());
+        let explorer = std::path::Path::new(&windir).join("explorer.exe");
+        if std::process::Command::new(&explorer).arg(&url).spawn().is_ok() {
+            return Ok(url);
+        }
+    }
+    // Fallback: `FiveM.exe "<link>"` directly (works on FiveM builds without the parent check).
     let mut cmd = std::process::Command::new(&exe);
     cmd.arg(&url);
     if let Some(dir) = exe.parent() {
