@@ -94,9 +94,26 @@
   ],
   "items": [
     {
+      "id": "update-2026-11-12",
+      "date": "2026-11-12",
+      "pinned": true,
+      "title": {
+        "ru": "Обновление 12 ноября: зомби умнее, новый звук оружия",
+        "en": "November 12 update: smarter zombies, new gun sounds",
+        "es": "Actualización del 12 de noviembre: zombis más listos, nuevo sonido de armas",
+        "pt-BR": "Atualização de 12 de novembro: zumbis mais espertos, novo som das armas"
+      },
+      "body": {
+        "ru": "Что нового:\n• Зомби замечают вас и кричат, на крик сходятся другие. У каждого своя скорость, есть ползуны. Без дела бродят и стучат в двери. Слышат голосовой чат: разговор как шаги, крик как бег.\n• Зомби появляются плавно и больше не появляются на базах и в помещениях.\n• Орды: толпа зомби проходит мимо и уходит вдаль.\n• Зомби-смертник: услышали писк, бегите.\n• Звук оружия переделан: выстрелы слышно далеко, очереди звучат как настоящие, мушкет слышно за километр.\n• Попадания по металлу, дереву, бетону, стеклу и земле выглядят по-разному, остаются дырки от пуль.\n• Анимации перевязки, еды и питья.\n• Листы стали ставятся на кузов, а не на стёкла: первые машины, остальные скоро.\n• HD-текстуры, заснеженные пальмы, починены невидимые стены и стыки в тоннелях.\n• GPS снова показывает карту. Если рамка пустая, наберите /gpsfix.",
+        "en": "What's new:\n• Zombies notice you and scream, and others come to the scream. Each one has its own speed, and some crawl. Idle zombies wander and knock on doors. They hear voice chat: talking carries like footsteps, shouting like running.\n• Zombies now appear gradually and no longer spawn on bases or indoors.\n• Hordes: a crowd of zombies walks past and fades into the distance.\n• Suicide zombie: if you hear beeping, run.\n• Gun sounds reworked: shots carry far, bursts sound real, and a musket can be heard a kilometer away.\n• Hits on metal, wood, concrete, glass and ground look different, and bullet holes stay.\n• Animations for bandaging, eating and drinking.\n• Steel plates go on the car body, not the windows: first cars now, the rest soon.\n• HD textures, snowy palms, fixed invisible walls and tunnel joints.\n• GPS shows the map again. If the frame is empty, type /gpsfix.",
+        "es": "Novedades:\n• Los zombis te ven y gritan, y otros acuden al grito. Cada uno tiene su propia velocidad, y algunos se arrastran. Sin nada que hacer, deambulan y golpean puertas. Oyen el chat de voz: hablar se oye como pasos, gritar como correr.\n• Los zombis aparecen poco a poco y ya no aparecen en las bases ni en interiores.\n• Hordas: una multitud de zombis pasa de largo y se pierde a lo lejos.\n• Zombi suicida: si oyes un pitido, corre.\n• Sonido de armas renovado: los disparos se oyen lejos, las ráfagas suenan reales y el mosquete se oye a un kilómetro.\n• Los impactos en metal, madera, hormigón, vidrio y tierra se ven distintos, y quedan agujeros de bala.\n• Animaciones de vendaje, comida y bebida.\n• Las placas de acero van en la carrocería, no en los cristales: primeros coches ya, el resto pronto.\n• Texturas HD, palmeras nevadas, arreglados muros invisibles y juntas de túneles.\n• El GPS vuelve a mostrar el mapa. Si el marco está vacío, escribe /gpsfix.",
+        "pt-BR": "Novidades:\n• Os zumbis notam você e gritam, e outros vêm ao grito. Cada um tem sua própria velocidade, e alguns rastejam. Sem nada para fazer, vagam e batem em portas. Ouvem o chat de voz: falar soa como passos, gritar como correr.\n• Os zumbis surgem aos poucos e não aparecem mais nas bases nem em interiores.\n• Hordas: uma multidão de zumbis passa e some ao longe.\n• Zumbi-bomba: ouviu um bipe, corra.\n• Som das armas refeito: os tiros são ouvidos de longe, as rajadas soam reais e o mosquete é ouvido a um quilômetro.\n• Impactos em metal, madeira, concreto, vidro e terra têm aparência diferente, e os buracos de bala ficam.\n• Animações de curativo, comida e bebida.\n• As placas de aço vão na carroceria, não nos vidros: primeiros carros já, o resto em breve.\n• Texturas HD, palmeiras com neve, paredes invisíveis e juntas dos túneis corrigidas.\n• O GPS voltou a mostrar o mapa. Se o quadro estiver vazio, digite /gpsfix."
+      }
+    },
+    {
       "id": "opening-2026-11-11",
       "date": "2026-11-11",
-      "pinned": true,
+      "pinned": false,
       "title": {
         "ru": "Открытие сегодня в 18:00 по Москве",
         "en": "We open today at 18:00 Moscow time",
