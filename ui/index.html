@@ -76,6 +76,10 @@
           <button class="btn btn--accent" id="btn-download" data-i18n="download_fivem"></button>
           <button class="btn" id="btn-recheck" data-i18n="recheck"></button>
         </div>
+        <!-- FiveM завис в фоне (13.11, ошибка «LinkProtocolIPC»): закрыть все процессы FiveM, src-tauri/src/running.rs -->
+        <div class="fivem__actions" id="fivem-stuck" hidden>
+          <button class="btn btn--accent" id="btn-close-fivem" data-i18n="close_fivem"></button>
+        </div>
       </div>
 
       <div class="update" id="update" hidden>

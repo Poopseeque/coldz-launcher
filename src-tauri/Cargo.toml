@@ -1,6 +1,6 @@
 [package]
 name = "coldz-launcher"
-version = "0.3.0"
+version = "0.3.1"
 description = "COLDZ launcher: starts FiveM and connects to the COLDZ server"
 authors = ["COLDZ"]
 edition = "2021"
@@ -30,6 +30,8 @@ tokio = { version = "1", features = ["rt", "io-util"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
+# FiveM already running? (running.rs: process list, visible windows, close stuck FiveM). 0.59 is already in the tree
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
 
 [profile.release]
 codegen-units = 1

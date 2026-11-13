@@ -2,7 +2,8 @@
 //!
 //! The launcher never touches FiveM or game files. It only:
 //!   * looks for an installed FiveM (registry + %LOCALAPPDATA%\FiveM),
-//!   * starts the real FiveM client with `fivem://connect/<address>`,
+//!   * starts the real FiveM client with `fivem://connect/<address>` — not a second time while FiveM is starting or
+//!     stuck (running.rs: that is FiveM's "LinkProtocolIPC" error); can close stuck FiveM processes on request,
 //!   * reads the public server endpoints (/dynamic.json, /players.json, /info.json),
 //!   * downloads a news JSON file (it may also carry the server address and the rules,
 //!     so both can be changed without a new launcher build),
@@ -10,6 +11,7 @@
 //!   * updates itself through the Tauri updater (signed with our own key).
 
 mod nick;
+mod running;
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -239,10 +241,31 @@ fn detect_fivem() -> FivemInfo {
     }
 }
 
-/// Starts the real FiveM client and tells it to join our server.
-/// Returns the connect link on success, or an error code for the UI.
+/// When the launcher last started FiveM: a second "Play" while FiveM is still starting must not start it again.
+fn last_launch() -> &'static std::sync::Mutex<Option<Instant>> {
+    static LAST: OnceLock<std::sync::Mutex<Option<Instant>>> = OnceLock::new();
+    LAST.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+/// FiveM may take this long to show its window (update check, first start).
+const STARTING_FOR: Duration = Duration::from_secs(150);
+
+fn launched_recently() -> bool {
+    last_launch().lock().ok().and_then(|g| *g).map_or(false, |t| t.elapsed() < STARTING_FOR)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PlayResult {
+    /// "launched" — FiveM started with the link; "passed" — FiveM was open, the link went into it;
+    /// "starting" — FiveM is still starting from the previous "Play", nothing done.
+    action: &'static str,
+}
+
+/// Starts the real FiveM client and tells it to join our server (running.rs: not a second time).
+/// Errors for the UI: no_address, fivem_missing, fivem_stuck (FiveM processes without a game window), launch_failed.
 #[tauri::command]
-fn play(app: AppHandle) -> Result<String, String> {
+fn play(app: AppHandle) -> Result<PlayResult, String> {
     let Some(address) = effective_address() else {
         return Err("no_address".into());
     };
@@ -250,15 +273,27 @@ fn play(app: AppHandle) -> Result<String, String> {
     let Some(exe) = find_fivem() else {
         return Err("fivem_missing".into());
     };
+    let action = match running::decide(&running::state_of(&running::processes()), launched_recently()) {
+        running::Decision::Starting => return Ok(PlayResult { action: "starting" }),
+        running::Decision::Stuck => return Err("fivem_stuck".into()),
+        running::Decision::PassLink => "passed",
+        running::Decision::Launch => {
+            if let Ok(mut g) = last_launch().lock() {
+                *g = Some(Instant::now());
+            }
+            "launched"
+        }
+    };
     // FiveM refuses to start when its parent process is not the Windows shell or a browser
     // ("This application should be launched directly from the shell or a web browser").
-    // So hand the fivem:// link to explorer.exe: the shell then starts FiveM itself.
+    // So hand the fivem:// link to explorer.exe: the shell then starts FiveM itself (or, if FiveM is open,
+    // FiveM passes the link to the running game).
     #[cfg(windows)]
     {
         let windir = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".into());
         let explorer = std::path::Path::new(&windir).join("explorer.exe");
         if std::process::Command::new(&explorer).arg(&url).spawn().is_ok() {
-            return Ok(url);
+            return Ok(PlayResult { action });
         }
     }
     // Fallback: `FiveM.exe "<link>"` directly (works on FiveM builds without the parent check).
@@ -275,14 +310,24 @@ fn play(app: AppHandle) -> Result<String, String> {
         cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
     }
     match cmd.spawn() {
-        Ok(_) => Ok(url),
+        Ok(_) => Ok(PlayResult { action }),
         // Fall back to the registered fivem:// link handler.
         Err(_) => app
             .opener()
             .open_url(&url, None::<&str>)
-            .map(|_| url)
+            .map(|_| PlayResult { action })
             .map_err(|_| "launch_failed".into()),
     }
+}
+
+/// "Close FiveM" after fivem_stuck: ends every FiveM process. (closed, failed) — failed: FiveM runs as administrator.
+#[tauri::command]
+fn close_fivem() -> (u32, u32) {
+    let result = running::close_matching(running::is_fivem);
+    if let Ok(mut g) = last_launch().lock() {
+        *g = None;
+    }
+    result
 }
 
 // ---------------------------------------------------------------- server status
@@ -625,6 +670,7 @@ pub fn run() {
             get_config,
             detect_fivem,
             play,
+            close_fivem,
             get_nick,
             send_nick,
             server_status,

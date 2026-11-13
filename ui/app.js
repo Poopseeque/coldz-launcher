@@ -176,7 +176,10 @@
     const text = $("fivem-text");
     const actions = $("fivem-actions");
     $("play").disabled = busy || !fivemInstalled || !address || nickInvalid();
-    if (fivemMessage && Date.now() < fivemMessage.until) {
+    const showing = !!(fivemMessage && Date.now() < fivemMessage.until);
+    // «Закрыть FiveM» — только пока висит сообщение «FiveM завис» (stuck)
+    $("fivem-stuck").hidden = !(showing && fivemMessage.stuck);
+    if (showing) {
       box.dataset.state = "message";
       text.textContent = t(fivemMessage.key, { a: address || "—" });
       actions.hidden = true;
@@ -202,10 +205,23 @@
     renderFivem();
   }
 
-  function showFivemMessage(key, ms) {
-    fivemMessage = { key, until: Date.now() + ms };
+  // stuck — with the «Close FiveM» button (FiveM processes without a game window, src-tauri/src/running.rs)
+  function showFivemMessage(key, ms, stuck) {
+    fivemMessage = { key, until: Date.now() + ms, stuck: !!stuck };
     renderFivem();
     setTimeout(renderFivem, ms + 50);
+  }
+
+  // «Close FiveM»: ends every FiveM process; [closed, failed] — failed: FiveM runs as administrator
+  async function closeFivem() {
+    const btn = $("btn-close-fivem");
+    btn.disabled = true;
+    let res = null;
+    try { res = await invoke("close_fivem"); } catch (e) { console.warn("close FiveM:", e); }
+    btn.disabled = false;
+    const failed = Array.isArray(res) ? Number(res[1]) || 0 : 1;
+    if (failed > 0) showFivemMessage("fivem_close_failed", 120000, true);
+    else showFivemMessage("fivem_closed", 15000);
   }
 
   async function play() {
@@ -232,11 +248,19 @@
       $("nick").focus();
       return;
     }
-    // 2) FiveM.
+    // 2) FiveM: started, or the link went into an open FiveM, or it is still starting from the last «Play»
+    // (not started twice: that is the «LinkProtocolIPC» error), or it is stuck — offer to close it.
+    let holdMs = 4000;  // after a real start: guard against double clicks while FiveM is starting
     try {
-      await invoke("play");
-      showFivemMessage("launched", 10000);
-      setTimeout(() => appWindow.minimize().catch(() => {}), 2500);
+      const res = await invoke("play");
+      const action = (res && res.action) || "launched";
+      if (action === "starting") {
+        holdMs = 1500;
+        showFivemMessage("fivem_starting", 15000);
+      } else {
+        showFivemMessage(action === "passed" ? "launched_passed" : "launched", 10000);
+        setTimeout(() => appWindow.minimize().catch(() => {}), 2500);
+      }
     } catch (err) {
       if (err === "fivem_missing") {
         fivemInstalled = false;
@@ -244,12 +268,14 @@
       } else if (err === "no_address") {
         address = "";
         showFivemMessage("no_address", 10000);
+      } else if (err === "fivem_stuck") {
+        holdMs = 0;
+        showFivemMessage("fivem_stuck", 120000, true);
       } else {
         showFivemMessage("launch_failed", 20000);
       }
     } finally {
-      // Guard against double clicks while FiveM is starting.
-      release(4000);
+      release(holdMs);
     }
   }
 
@@ -434,6 +460,7 @@
     $("nick").onkeydown = (e) => { if (e.key === "Enter" && !$("play").disabled) play(); };
     $("btn-copy").onclick = copyAddress;
     $("btn-recheck").onclick = refreshFivem;
+    $("btn-close-fivem").onclick = closeFivem;
     $("btn-update").onclick = installUpdate;
     document.querySelectorAll(".tab").forEach((b) => { b.onclick = () => showTab(b.dataset.tab); });
     document.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -471,6 +498,8 @@
   // Only used when the page is opened without Tauri (e.g. ui/index.html in a browser).
   // ?fivem=0 — FiveM "not installed", ?address=0 — address not published yet, ?nick=down — the server does not
   // answer about the nick. A nick with "admin"/"админ" is rejected like the server does, "often" — too often.
+  // ?run=open — FiveM is open (the link goes into it), ?run=starting — still starting, ?run=stuck — stuck in the
+  // background («Close FiveM» button; ?run=stuck&close=fail — could not close everything).
   function previewTauri() {
     const q = new URLSearchParams(location.search);
     const data = {
@@ -506,7 +535,13 @@
         if (/often/i.test(nick)) return { status: "rejected", nick, reason: "often" };
         return { status: "ok", nick };
       }
-      if (cmd === "open_external" || cmd === "play") { console.log("[preview]", cmd); return "ok"; }
+      if (cmd === "play") {
+        const run = q.get("run");
+        if (run === "stuck") throw "fivem_stuck";
+        return { action: run === "open" ? "passed" : run === "starting" ? "starting" : "launched" };
+      }
+      if (cmd === "close_fivem") return q.get("close") === "fail" ? [2, 1] : [3, 0];
+      if (cmd === "open_external") { console.log("[preview]", cmd); return "ok"; }
       return data[cmd];
     };
     const win = { minimize: async () => {}, toggleMaximize: async () => {}, close: async () => {} };
