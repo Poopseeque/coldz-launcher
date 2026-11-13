@@ -181,6 +181,8 @@ git commit -m "Версия 0.1.1"; git push
 
 `npm run release` подписывает обновление ключом из `C:\Users\Aaenl\.coldz-launcher-keys\updater.key` (сам находит его; без ключа выпуск остановится с ошибкой) и кладёт `.sig` и `latest.json` рядом с установщиком.
 
+Проверка подписи открытым ключом (секретный не нужен): `python scripts/verify-update.py 0.1.1` — файлы `release\0.1.1\`; после публикации `python scripts/verify-update.py --url` — то, что получают игроки. Порядок выпуска и грабли для Claude — `docs/ПРАВИЛА.md`.
+
 Затем на GitHub: **Releases → Draft a new release** → тег `v0.1.1` → прикрепить три файла из `release\0.1.1\` (`…setup.exe`, `…setup.exe.sig`, `latest.json`) → **Publish release**.
 
 Все установленные лаунчеры при следующем запуске покажут «Вышла новая версия лаунчера 0.1.1 — Обновить». Ссылка для скачивания на сайт/в Discord всегда одна и та же:
@@ -251,6 +253,8 @@ src-tauri/tauri.conf.json окно, установщик, адрес обнов�
 scripts/build.ps1         сборка одной командой (npm run build / npm run release)
 scripts/sign.ps1          подпись сертификатом Windows (когда появится)
 scripts/set-version.ps1   смена версии в трёх файлах
+scripts/verify-update.py  проверка подписи обновления открытым ключом (раздел 5)
+docs/ПРАВИЛА.md           правила и грабли для следующего Claude
 LICENSE-INSTALLER.txt     первая страница установщика (почта + фраза про Rockstar)
 ```
 
