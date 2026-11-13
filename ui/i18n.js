@@ -1,5 +1,5 @@
 // Launcher texts. RU is the main language; missing keys fall back to RU.
-// "{v}", "{p}" and "{a}" are placeholders filled in by app.js.
+// "{v}", "{p}", "{a}" and "{n}" are placeholders filled in by app.js.
 // "lead" is the same line as on the server loading screen (z_loadscreen locales: ui.lead).
 // The rules themselves come from news.json ("rules"), so they can change without a new build.
 window.I18N = {
@@ -40,7 +40,19 @@ window.I18N = {
     contact: "Связь с владельцем",
     minimize: "Свернуть",
     maximize: "Развернуть",
-    close: "Закрыть"
+    close: "Закрыть",
+    nick_label: "Ник",
+    nick_placeholder: "Пусто: ник из FiveM",
+    nick_hint: "Так вас увидят на сервере. Менять можно когда угодно.",
+    nick_hint_empty: "Пусто: на сервере будет ваш ник из FiveM.",
+    nick_chars: "Только русские и английские буквы, цифры, пробел, - и _ (хотя бы одна буква или цифра).",
+    nick_long: "Слишком длинный: до 20 русских или 40 английских букв.",
+    nick_reserved: "Так нельзя: похоже на ник команды сервера (админ, модер, создатель…).",
+    nick_often: "Слишком часто. Подождите пару секунд и нажмите «Играть» ещё раз.",
+    nick_bad: "Сервер не принял этот ник. Попробуйте другой.",
+    nick_sent: "Ник «{n}» будет на сервере при входе (если вы уже в игре, перезайдите через «Играть»).",
+    nick_sent_fivem: "На сервере будет ваш ник из FiveM.",
+    nick_unreachable: "Сервер не ответил, ник не поменяли: остался прежний."
   },
   en: {
     lead: "Winter never ends. Find warmth, food and ammo before the dead or the living find you.",
@@ -79,7 +91,19 @@ window.I18N = {
     contact: "Contact the owner",
     minimize: "Minimize",
     maximize: "Maximize",
-    close: "Close"
+    close: "Close",
+    nick_label: "Nickname",
+    nick_placeholder: "Empty: your FiveM name",
+    nick_hint: "This is how others see you on the server. Change it any time.",
+    nick_hint_empty: "Empty: the server will use your FiveM name.",
+    nick_chars: "Only English and Russian letters, digits, space, - and _ (at least one letter or digit).",
+    nick_long: "Too long: up to 40 English or 20 Russian letters.",
+    nick_reserved: "Not allowed: looks like a server staff name (admin, moderator, creator…).",
+    nick_often: "Too often. Wait a couple of seconds and press Play again.",
+    nick_bad: "The server did not accept this nickname. Try another one.",
+    nick_sent: "Your nickname “{n}” will be used on the server when you join (already in the game? Rejoin with Play).",
+    nick_sent_fivem: "The server will use your FiveM name.",
+    nick_unreachable: "The server did not answer, so your nickname was not changed."
   },
   es: {
     lead: "El invierno no termina. Busca calor, comida y munición antes de que te encuentren los muertos o los vivos.",
@@ -118,7 +142,19 @@ window.I18N = {
     contact: "Contacto del propietario",
     minimize: "Minimizar",
     maximize: "Maximizar",
-    close: "Cerrar"
+    close: "Cerrar",
+    nick_label: "Apodo",
+    nick_placeholder: "Vacío: tu nombre de FiveM",
+    nick_hint: "Así te verán en el servidor. Puedes cambiarlo cuando quieras.",
+    nick_hint_empty: "Vacío: en el servidor tendrás tu nombre de FiveM.",
+    nick_chars: "Solo letras inglesas y rusas, números, espacio, - y _ (al menos una letra o número).",
+    nick_long: "Demasiado largo: hasta 40 letras inglesas o 20 rusas.",
+    nick_reserved: "No permitido: parece el nombre de alguien del equipo del servidor (admin, moderador, creador…).",
+    nick_often: "Demasiado seguido. Espera un par de segundos y pulsa Jugar otra vez.",
+    nick_bad: "El servidor no aceptó este apodo. Prueba otro.",
+    nick_sent: "Tu apodo «{n}» se usará en el servidor al entrar (¿ya estás en el juego? Vuelve a entrar con Jugar).",
+    nick_sent_fivem: "En el servidor se usará tu nombre de FiveM.",
+    nick_unreachable: "El servidor no respondió: el apodo no cambió."
   },
   "pt-BR": {
     lead: "O inverno não acaba. Encontre calor, comida e munição antes que os mortos ou os vivos encontrem você.",
@@ -157,6 +193,18 @@ window.I18N = {
     contact: "Contato do dono",
     minimize: "Minimizar",
     maximize: "Maximizar",
-    close: "Fechar"
+    close: "Fechar",
+    nick_label: "Apelido",
+    nick_placeholder: "Vazio: seu nome do FiveM",
+    nick_hint: "É assim que vão te ver no servidor. Dá para mudar quando quiser.",
+    nick_hint_empty: "Vazio: no servidor vai aparecer seu nome do FiveM.",
+    nick_chars: "Só letras inglesas e russas, números, espaço, - e _ (pelo menos uma letra ou número).",
+    nick_long: "Longo demais: até 40 letras inglesas ou 20 russas.",
+    nick_reserved: "Não permitido: parece nome de alguém da equipe do servidor (admin, moderador, criador…).",
+    nick_often: "Rápido demais. Espere uns segundos e aperte Jogar de novo.",
+    nick_bad: "O servidor não aceitou esse apelido. Tente outro.",
+    nick_sent: "Seu apelido “{n}” vai valer no servidor quando você entrar (já está no jogo? Entre de novo pelo Jogar).",
+    nick_sent_fivem: "No servidor vai valer seu nome do FiveM.",
+    nick_unreachable: "O servidor não respondeu: o apelido não mudou."
   }
 };

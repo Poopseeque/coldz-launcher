@@ -46,6 +46,8 @@
     $("lang").value = lang;
     document.querySelectorAll("[data-i18n]").forEach((el) => { el.textContent = t(el.dataset.i18n); });
     document.querySelectorAll("[data-i18n-title]").forEach((el) => { el.title = t(el.dataset.i18nTitle); });
+    document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => { el.placeholder = t(el.dataset.i18nPlaceholder); });
+    renderNick();
     renderStatusText();
     renderAddress();
     renderFivem();
@@ -106,12 +108,74 @@
     }
   }
 
+  // ------------------------------------------------------------ nickname (13.11)
+  // The nick on the server: sent to our server on "Play" (src-tauri/src/nick.rs), empty = the FiveM name.
+  // Same rules as the server (winter-server z_menu/shared/nick.lua) and nick.rs: Latin and Cyrillic letters, digits,
+  // space, - and _; at least one letter or digit; up to 40 bytes. Staff words ("admin"...) are checked by the server.
+  const NICK_MAX_BYTES = 40;
+  const NICK_ALLOWED = /^[0-9A-Za-z \-_А-яЁё]+$/;
+  const NICK_ALNUM = /[0-9A-Za-zА-яЁё]/;
+  const NICK_REASONS = ["chars", "long", "reserved", "often"];
+  let nickNote = null;       // the server's answer under the field: { key, vars, state }
+
+  function nickCheck(raw) {
+    const nick = String(raw || "").replace(/\s+/g, " ").trim();
+    if (!nick) return { nick };
+    if (!NICK_ALLOWED.test(nick) || !NICK_ALNUM.test(nick)) return { error: "chars" };
+    if (new TextEncoder().encode(nick).length > NICK_MAX_BYTES) return { error: "long" };
+    return { nick };
+  }
+
+  function nickInvalid() { return !!nickCheck($("nick").value).error; }
+
+  function renderNick() {
+    const box = $("nick-box");
+    const hint = $("nick-hint");
+    const c = nickCheck($("nick").value);
+    if (c.error) {
+      box.dataset.state = "bad";
+      hint.textContent = t("nick_" + c.error);
+    } else if (nickNote) {
+      box.dataset.state = nickNote.state;
+      hint.textContent = t(nickNote.key, nickNote.vars);
+    } else {
+      box.dataset.state = "";
+      hint.textContent = t(c.nick ? "nick_hint" : "nick_hint_empty");
+    }
+  }
+
+  // Tells the server the nick. false — the server said no (the reason is shown under the field): FiveM is not started.
+  // No answer (old server, no internet) — FiveM starts anyway with the nick the player already had.
+  async function sendNick(nick) {
+    let res;
+    try {
+      res = await invoke("send_nick", { nick });
+    } catch (err) {
+      nickNote = { key: err === "long" ? "nick_long" : "nick_chars", state: "bad" };
+      return false;
+    }
+    if (res && res.status === "rejected") {
+      nickNote = { key: "nick_" + (NICK_REASONS.includes(res.reason) ? res.reason : "bad"), state: "bad" };
+      return false;
+    }
+    nickNote = res && res.status === "ok"
+      ? { key: res.nick ? "nick_sent" : "nick_sent_fivem", vars: { n: res.nick }, state: "ok" }
+      : { key: "nick_unreachable", state: "" };
+    return true;
+  }
+
+  function onNickInput() {
+    nickNote = null;
+    renderNick();
+    renderFivem();
+  }
+
   // ------------------------------------------------------------ FiveM + play
   function renderFivem() {
     const box = $("fivem");
     const text = $("fivem-text");
     const actions = $("fivem-actions");
-    $("play").disabled = busy || !fivemInstalled || !address;
+    $("play").disabled = busy || !fivemInstalled || !address || nickInvalid();
     if (fivemMessage && Date.now() < fivemMessage.until) {
       box.dataset.state = "message";
       text.textContent = t(fivemMessage.key, { a: address || "—" });
@@ -146,11 +210,29 @@
 
   async function play() {
     if (busy) return;
+    const checked = nickCheck($("nick").value);
+    if (checked.error) return renderNick();
     busy = true;
     const btn = $("play");
+    const release = (ms) => setTimeout(() => {
+      busy = false;
+      btn.classList.remove("is-busy");
+      btn.querySelector(".play__text").textContent = t("play");
+      renderFivem();
+    }, ms);
     btn.disabled = true;
     btn.classList.add("is-busy");
     btn.querySelector(".play__text").textContent = t("launching");
+    // 1) The nick to our server. It said no — show why under the field and do not start FiveM.
+    $("nick").value = checked.nick;
+    const nickOk = await sendNick(checked.nick);
+    renderNick();
+    if (!nickOk) {
+      release(0);
+      $("nick").focus();
+      return;
+    }
+    // 2) FiveM.
     try {
       await invoke("play");
       showFivemMessage("launched", 10000);
@@ -167,12 +249,7 @@
       }
     } finally {
       // Guard against double clicks while FiveM is starting.
-      setTimeout(() => {
-        busy = false;
-        btn.classList.remove("is-busy");
-        btn.querySelector(".play__text").textContent = t("play");
-        renderFivem();
-      }, 4000);
+      release(4000);
     }
   }
 
@@ -353,6 +430,8 @@
     $("btn-max").onclick = () => appWindow.toggleMaximize();
     $("btn-close").onclick = () => appWindow.close();
     $("play").onclick = play;
+    $("nick").oninput = onNickInput;
+    $("nick").onkeydown = (e) => { if (e.key === "Enter" && !$("play").disabled) play(); };
     $("btn-copy").onclick = copyAddress;
     $("btn-recheck").onclick = refreshFivem;
     $("btn-update").onclick = installUpdate;
@@ -366,6 +445,9 @@
     $("email").onclick = (e) => { e.preventDefault(); openExternal("mailto:" + cfg.ownerEmail); };
     $("btn-download").onclick = () => openExternal(cfg.fivemDownloadUrl);
     renderLinks();
+    // the nick saved last time ("" = FiveM name)
+    try { $("nick").value = (await invoke("get_nick")) || ""; } catch { /* first start */ }
+    renderNick();
 
     await refreshFivem();
     refreshStatus();
@@ -387,7 +469,8 @@
 
   // ------------------------------------------------------------ browser preview
   // Only used when the page is opened without Tauri (e.g. ui/index.html in a browser).
-  // ?fivem=0 — FiveM "not installed", ?address=0 — address not published yet.
+  // ?fivem=0 — FiveM "not installed", ?address=0 — address not published yet, ?nick=down — the server does not
+  // answer about the nick. A nick with "admin"/"админ" is rejected like the server does, "often" — too often.
   function previewTauri() {
     const q = new URLSearchParams(location.search);
     const data = {
@@ -407,10 +490,21 @@
         : { online: true, players: 12, maxPlayers: 48, pingMs: 34, address: "203.0.113.10:30120" },
       check_update: null
     };
-    const call = async (cmd) => {
+    let previewNick = "";
+    const call = async (cmd, args) => {
       if (cmd === "fetch_news") {
         const r = await fetch("../news/news.json");
         return { source: "remote", data: await r.json() };
+      }
+      if (cmd === "get_nick") return previewNick;
+      if (cmd === "send_nick") {
+        const nick = (args && args.nick) || "";
+        previewNick = nick;
+        await new Promise((r) => setTimeout(r, 300));
+        if (q.get("nick") === "down") return { status: "unreachable", nick };
+        if (/admin|админ/i.test(nick)) return { status: "rejected", nick, reason: "reserved" };
+        if (/often/i.test(nick)) return { status: "rejected", nick, reason: "often" };
+        return { status: "ok", nick };
       }
       if (cmd === "open_external" || cmd === "play") { console.log("[preview]", cmd); return "ok"; }
       return data[cmd];

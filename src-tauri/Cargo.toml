@@ -1,6 +1,6 @@
 [package]
 name = "coldz-launcher"
-version = "0.2.1"
+version = "0.3.0"
 description = "COLDZ launcher: starts FiveM and connects to the COLDZ server"
 authors = ["COLDZ"]
 edition = "2021"
@@ -26,7 +26,7 @@ rustls = { version = "0.23", default-features = false, features = ["ring"] }
 tokio = { version = "1", features = ["net", "time", "sync", "macros"] }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["rt"] }
+tokio = { version = "1", features = ["rt", "io-util"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"

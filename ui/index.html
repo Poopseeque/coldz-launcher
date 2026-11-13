@@ -53,6 +53,14 @@
         </div>
       </div>
 
+      <!-- Ник на сервере (13.11): уходит серверу по «Играть» (src-tauri/src/nick.rs), пусто — ник из FiveM -->
+      <div class="nick" id="nick-box">
+        <label class="nick__label" for="nick" data-i18n="nick_label"></label>
+        <input class="nick__input" id="nick" type="text" maxlength="40" autocomplete="off" spellcheck="false"
+               data-i18n-placeholder="nick_placeholder">
+        <p class="nick__hint" id="nick-hint"></p>
+      </div>
+
       <button class="play" id="play" disabled>
         <span class="play__text" data-i18n="play"></span>
       </button>

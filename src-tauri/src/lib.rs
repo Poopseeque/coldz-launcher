@@ -6,7 +6,10 @@
 //!   * reads the public server endpoints (/dynamic.json, /players.json, /info.json),
 //!   * downloads a news JSON file (it may also carry the server address and the rules,
 //!     so both can be changed without a new launcher build),
+//!   * sends the player's nickname to our own server before "Play" (nick.rs: `POST /z_menu/nick`),
 //!   * updates itself through the Tauri updater (signed with our own key).
+
+mod nick;
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -416,6 +419,69 @@ async fn server_status() -> Status {
     status
 }
 
+// ---------------------------------------------------------------- nickname
+
+fn settings_path(app: &AppHandle) -> Option<PathBuf> {
+    app.path().app_config_dir().ok().map(|d| d.join("settings.json"))
+}
+
+/// The nick saved last time ("" = FiveM name).
+#[tauri::command]
+fn get_nick(app: AppHandle) -> String {
+    settings_path(&app).map(|p| nick::load(&p).nick).unwrap_or_default()
+}
+
+/// Where the server takes the nick: the game address, or for a `cfx.re/join/` code its first real endpoint.
+async fn nick_endpoint(target: &Target) -> Option<String> {
+    match target {
+        Target::Direct { host, port } => Some(nick::endpoint(host, *port)),
+        Target::JoinCode(code) => {
+            let url = format!("https://servers-frontend.fivem.net/api/servers/single/{code}");
+            let v = get_json(&url).await?;
+            match parse_address(v.pointer("/Data/connectEndPoints/0")?.as_str()?) {
+                Target::Direct { host, port } => Some(nick::endpoint(&host, port)),
+                Target::JoinCode(_) => None,
+            }
+        }
+    }
+}
+
+/// "Play", step 1: remember the nick and tell the server (nick.rs). Err("chars" | "long") — the nick breaks the
+/// rules, nothing is sent. The UI starts FiveM unless the server rejected the nick.
+#[tauri::command]
+async fn send_nick(app: AppHandle, nick: String) -> Result<nick::NickResult, String> {
+    let wanted = nick::check(&nick).map_err(str::to_string)?;
+    let path = settings_path(&app);
+    let mut saved = path.as_deref().map(nick::load).unwrap_or_default();
+    if saved.launcher_id.is_empty() {
+        saved.launcher_id = nick::new_launcher_id();
+    }
+    saved.nick = wanted.clone();
+    if let Some(p) = &path {
+        let _ = nick::save(p, &saved);
+    }
+    let Some(address) = effective_address() else {
+        return Ok(nick::NickResult::unreachable(&wanted));
+    };
+    let Some(url) = nick_endpoint(&parse_address(&address)).await else {
+        return Ok(nick::NickResult::unreachable(&wanted));
+    };
+    Ok(post_nick(&url, &wanted, &saved.launcher_id).await)
+}
+
+/// `POST <url> {"nick", "launcher"}` and what the server said.
+async fn post_nick(url: &str, wanted: &str, launcher_id: &str) -> nick::NickResult {
+    let body = serde_json::json!({ "nick": wanted, "launcher": launcher_id });
+    match http().post(url).json(&body).send().await {
+        Ok(resp) => {
+            let code = resp.status().as_u16();
+            let v = resp.json::<serde_json::Value>().await.ok();
+            nick::interpret(code, v.as_ref(), wanted)
+        }
+        Err(_) => nick::NickResult::unreachable(wanted),
+    }
+}
+
 // ---------------------------------------------------------------- news
 
 #[derive(Serialize)]
@@ -559,6 +625,8 @@ pub fn run() {
             get_config,
             detect_fivem,
             play,
+            get_nick,
+            send_nick,
             server_status,
             fetch_news,
             open_external,
@@ -640,6 +708,80 @@ mod tests {
         apply_feed(&serde_json::json!({ "items": [] }));
         let built_in = config().server_address.trim();
         assert_eq!(effective_address(), valid_address(built_in).then(|| built_in.to_string()));
+    }
+
+    /// A one-shot fake server on 127.0.0.1: reads one HTTP request, answers `status` + `body`, returns the request.
+    async fn fake_server(status: u16, body: &'static str) -> (String, tokio::task::JoinHandle<String>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut req = Vec::new();
+            let mut buf = [0u8; 4096];
+            loop {
+                let n = sock.read(&mut buf).await.unwrap();
+                req.extend_from_slice(&buf[..n]);
+                let text = String::from_utf8_lossy(&req).to_string();
+                if let Some(head_end) = text.find("\r\n\r\n") {
+                    let len = text[..head_end]
+                        .lines()
+                        .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap_or(0)))
+                        .unwrap_or(0);
+                    if req.len() >= head_end + 4 + len || n == 0 {
+                        break;
+                    }
+                }
+                if n == 0 {
+                    break;
+                }
+            }
+            let reply = format!(
+                "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            sock.write_all(reply.as_bytes()).await.unwrap();
+            String::from_utf8_lossy(&req).to_string()
+        });
+        (nick::endpoint("127.0.0.1", addr.port()), task)
+    }
+
+    #[test]
+    fn nick_goes_to_the_server_as_json() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        rt.block_on(async {
+            let (url, server) = fake_server(200, r#"{"ok":true,"nick":"Снег"}"#).await;
+            let res = post_nick(&url, "Снег", "abc123").await;
+            let req = server.await.unwrap();
+            assert_eq!(res, nick::NickResult { status: "ok", nick: "Снег".into(), reason: None });
+            assert!(req.starts_with("POST /z_menu/nick HTTP/1.1"), "{req}");
+            let body = &req[req.find("\r\n\r\n").unwrap() + 4..];
+            let v: serde_json::Value = serde_json::from_str(body).unwrap();
+            assert_eq!(v, serde_json::json!({ "nick": "Снег", "launcher": "abc123" }));
+
+            let (url, server) = fake_server(200, r#"{"ok":false,"reason":"reserved"}"#).await;
+            let res = post_nick(&url, "Админ", "abc123").await;
+            server.await.unwrap();
+            assert_eq!((res.status, res.reason.as_deref()), ("rejected", Some("reserved")));
+
+            let (url, server) = fake_server(429, "Rate limit exceeded.").await;
+            let res = post_nick(&url, "x", "abc123").await;
+            server.await.unwrap();
+            assert_eq!(res.reason.as_deref(), Some("often"));
+
+            // old server without the nick: FXServer answers 404 — FiveM still starts
+            let (url, server) = fake_server(404, "Not found.").await;
+            assert_eq!(post_nick(&url, "x", "abc123").await.status, "unreachable");
+            server.await.unwrap();
+
+            // nobody listens
+            let closed = {
+                let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+                l.local_addr().unwrap().port()
+            };
+            assert_eq!(post_nick(&nick::endpoint("127.0.0.1", closed), "x", "abc").await.status, "unreachable");
+        });
     }
 
     #[test]

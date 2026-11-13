@@ -195,6 +195,28 @@ button, select { font: inherit; color: inherit; }
 .status[data-state="checking"] .dot { animation: blink 1s infinite alternate; }
 @keyframes blink { to { opacity: .25; } }
 
+/* Nickname on the server: a black card with a thin line, like the status above */
+.nick {
+  width: 100%; max-width: var(--hero-w);
+  display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 4px 14px;
+  margin: 0 0 clamp(10px, 1.6vh, 16px);
+}
+.nick__label { font-family: var(--display); font-size: 11px; letter-spacing: .28em; text-transform: uppercase; color: var(--faint); }
+.nick__input {
+  min-width: 0; height: 38px; padding: 0 12px;
+  background: var(--panel); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 3px; outline: none;
+  font-family: var(--display); font-size: 16px; letter-spacing: .06em;
+  user-select: text; -webkit-user-select: text;
+  transition: border-color .15s ease;
+}
+.nick__input::placeholder { color: var(--faint); letter-spacing: .02em; font-family: var(--text); font-size: 13px; }
+.nick__input:focus { border-color: rgba(224, 38, 46, .7); }
+.nick[data-state="bad"] .nick__input { border-color: var(--blood-hi); }
+.nick__hint { grid-column: 2; margin: 0; min-height: 1.3em; font-size: 12px; line-height: 1.35; color: var(--faint); }
+.nick[data-state="bad"] .nick__hint { color: #ffb4b8; }
+.nick[data-state="ok"] .nick__hint { color: var(--muted); }
+
 /* Play: the dark-red bar with a running glint from the loading screen */
 .play {
   position: relative; overflow: hidden;
