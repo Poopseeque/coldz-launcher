@@ -1,7 +1,8 @@
 //! COLDZ launcher backend.
 //!
 //! The launcher never touches FiveM or game files. It only:
-//!   * looks for an installed FiveM (registry + %LOCALAPPDATA%\FiveM),
+//!   * looks for an installed FiveM (fivem.rs: the path chosen by hand, registry, a running FiveM, usual folders and
+//!     shortcuts; where it looked goes to fivem-search.log next to settings.json),
 //!   * starts the real FiveM client with `fivem://connect/<address>` — not a second time while FiveM is starting or
 //!     stuck (running.rs: that is FiveM's "LinkProtocolIPC" error); can close stuck FiveM processes on request,
 //!   * reads the public server endpoints (/dynamic.json, /players.json, /info.json),
@@ -10,6 +11,7 @@
 //!   * sends the player's nickname to our own server before "Play" (nick.rs: `POST /z_menu/nick`),
 //!   * updates itself through the Tauri updater (signed with our own key).
 
+mod fivem;
 mod nick;
 mod running;
 
@@ -188,57 +190,92 @@ fn get_config(app: AppHandle) -> PublicConfig {
 struct FivemInfo {
     installed: bool,
     path: Option<String>,
+    /// Which source found it (fivem.rs): manual, registry, process, folder, shortcut.
+    found_by: Option<String>,
 }
 
-/// Takes `"C:\path\FiveM.exe" "%1"` and returns `C:\path\FiveM.exe`.
-fn exe_from_command(cmd: &str) -> Option<PathBuf> {
-    let cmd = cmd.trim();
-    let exe = if let Some(rest) = cmd.strip_prefix('"') {
-        rest.split('"').next()?
-    } else {
-        cmd.split_whitespace().next()?
-    };
-    let p = PathBuf::from(exe);
-    p.is_file().then_some(p)
+/// `<app config dir>\fivem-search.log`: where the launcher looked for FiveM (next to settings.json).
+fn search_log_path(app: &AppHandle) -> Option<PathBuf> {
+    app.path().app_config_dir().ok().map(|d| d.join("fivem-search.log"))
 }
 
-#[cfg(windows)]
-fn fivem_from_registry() -> Option<PathBuf> {
-    use winreg::enums::{HKEY_CLASSES_ROOT, HKEY_CURRENT_USER};
-    use winreg::RegKey;
-    let keys = [
-        (HKEY_CURRENT_USER, r"Software\Classes\FiveM.ProtocolHandler\shell\open\command"),
-        (HKEY_CURRENT_USER, r"Software\Classes\fivem\shell\open\command"),
-        (HKEY_CLASSES_ROOT, r"FiveM.ProtocolHandler\shell\open\command"),
-        (HKEY_CLASSES_ROOT, r"fivem\shell\open\command"),
-    ];
-    keys.iter().find_map(|(root, path)| {
-        let cmd: String = RegKey::predef(*root).open_subkey(path).ok()?.get_value("").ok()?;
-        exe_from_command(&cmd)
-    })
+/// What the log said last time: the window asks every few seconds while FiveM is missing, the log gets a new entry
+/// only when the answer changes (or on a manual choice).
+fn last_logged() -> &'static std::sync::Mutex<Option<String>> {
+    static LAST: OnceLock<std::sync::Mutex<Option<String>>> = OnceLock::new();
+    LAST.get_or_init(|| std::sync::Mutex::new(None))
 }
 
-#[cfg(not(windows))]
-fn fivem_from_registry() -> Option<PathBuf> {
-    None
-}
-
-fn find_fivem() -> Option<PathBuf> {
-    if let Some(p) = fivem_from_registry() {
-        return Some(p);
+/// Looks for FiveM (fivem.rs). `why` — a title for the log; `force` — write the log even if nothing changed.
+fn find_fivem(app: &AppHandle, why: &str, force: bool) -> Option<fivem::Found> {
+    let manual = settings_path(app)
+        .map(|p| nick::load(&p).fivem_path)
+        .filter(|p| !p.trim().is_empty())
+        .map(PathBuf::from);
+    let (found, trace) = fivem::search(&fivem::System { manual });
+    let key = found.as_ref().map_or_else(|| "none".to_string(), |f| f.path.display().to_string());
+    let changed = last_logged()
+        .lock()
+        .map(|mut g| {
+            let changed = g.as_deref() != Some(key.as_str());
+            *g = Some(key.clone());
+            changed
+        })
+        .unwrap_or(true);
+    if force || changed {
+        if let Some(log) = search_log_path(app) {
+            let title = match &found {
+                Some(f) => format!("{why}: FiveM найден ({}): {}", f.stage, f.path.display()),
+                None => format!("{why}: FiveM не найден"),
+            };
+            fivem::write_log(&log, &title, &trace);
+        }
     }
-    let local = std::env::var_os("LOCALAPPDATA").map(PathBuf::from)?;
-    let p = local.join("FiveM").join("FiveM.exe");
-    p.is_file().then_some(p)
+    found
+}
+
+fn info_of(found: Option<fivem::Found>) -> FivemInfo {
+    FivemInfo {
+        installed: found.is_some(),
+        path: found.as_ref().map(|f| f.path.display().to_string()),
+        found_by: found.map(|f| f.stage.to_string()),
+    }
 }
 
 #[tauri::command]
-fn detect_fivem() -> FivemInfo {
-    let path = find_fivem();
-    FivemInfo {
-        installed: path.is_some(),
-        path: path.map(|p| p.display().to_string()),
+fn detect_fivem(app: AppHandle) -> FivemInfo {
+    info_of(find_fivem(&app, "проверка", false))
+}
+
+/// "Choose FiveM.exe manually": the Windows file dialog. Ok(None) — closed without a choice; Err("not_fivem") — the
+/// file does not lead to FiveM.exe (fivem.rs resolve), nothing saved; Ok(Some) — saved to settings.json and found.
+#[tauri::command]
+async fn pick_fivem(app: AppHandle, title: String) -> Result<Option<FivemInfo>, String> {
+    #[cfg(windows)]
+    let owner: isize = app
+        .get_webview_window("main")
+        .and_then(|w| w.hwnd().ok())
+        .map_or(0, |h| h.0 as isize);
+    #[cfg(not(windows))]
+    let owner: isize = 0;
+    let picked = tauri::async_runtime::spawn_blocking(move || fivem::pick_file(&title, owner))
+        .await
+        .map_err(|_| "dialog_failed".to_string())?;
+    let Some(file) = picked else {
+        return Ok(None);
+    };
+    let Some(exe) = fivem::resolve(&file) else {
+        if let Some(log) = search_log_path(&app) {
+            fivem::write_log(&log, &format!("вручную выбран {}: это не FiveM.exe", file.display()), &[]);
+        }
+        return Err("not_fivem".into());
+    };
+    if let Some(path) = settings_path(&app) {
+        let mut saved = nick::load(&path);
+        saved.fivem_path = exe.display().to_string();
+        nick::save(&path, &saved).map_err(|_| "save_failed".to_string())?;
     }
+    Ok(Some(info_of(find_fivem(&app, "указан вручную", true))))
 }
 
 /// When the launcher last started FiveM: a second "Play" while FiveM is still starting must not start it again.
@@ -270,7 +307,7 @@ fn play(app: AppHandle) -> Result<PlayResult, String> {
         return Err("no_address".into());
     };
     let url = connect_url(&parse_address(&address));
-    let Some(exe) = find_fivem() else {
+    let Some(exe) = find_fivem(&app, "«Играть»", false).map(|f| f.path) else {
         return Err("fivem_missing".into());
     };
     let action = match running::decide(&running::state_of(&running::processes()), launched_recently()) {
@@ -669,6 +706,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_config,
             detect_fivem,
+            pick_fivem,
             play,
             close_fivem,
             get_nick,
@@ -718,8 +756,10 @@ mod tests {
     fn reads_exe_from_handler_command() {
         let exe = std::env::current_exe().unwrap();
         let cmd = format!("\"{}\" \"%1\"", exe.display());
-        assert_eq!(exe_from_command(&cmd), Some(exe));
-        assert_eq!(exe_from_command("\"C:\\nope\\FiveM.exe\" \"%1\""), None);
+        assert_eq!(fivem::path_from_command(&cmd), Some(exe));
+        // a FiveM that is gone: the path is read, but it does not lead to FiveM.exe (fivem.rs resolve)
+        let gone = fivem::path_from_command("\"C:\\nope\\FiveM.exe\" \"%1\"").unwrap();
+        assert_eq!(fivem::resolve(&gone), None);
     }
 
     #[test]

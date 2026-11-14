@@ -205,6 +205,25 @@
     renderFivem();
   }
 
+  // «Choose FiveM.exe manually» (0.3.2): the Windows file dialog in Rust (src-tauri/src/fivem.rs). null — closed without
+  // a choice; "not_fivem" — the file is not FiveM.exe (nothing saved); otherwise saved, FiveM found
+  async function pickFivem() {
+    const btn = $("btn-pick-fivem");
+    btn.disabled = true;
+    try {
+      const info = await invoke("pick_fivem", { title: t("pick_fivem_title") });
+      if (info && info.installed) {
+        fivemInstalled = true;
+        showFivemMessage("fivem_picked", 6000);
+      }
+    } catch (err) {
+      if (err === "not_fivem") showFivemMessage("pick_fivem_wrong", 12000);
+      else console.warn("pick FiveM:", err);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
   // stuck — with the «Close FiveM» button (FiveM processes without a game window, src-tauri/src/running.rs)
   function showFivemMessage(key, ms, stuck) {
     fivemMessage = { key, until: Date.now() + ms, stuck: !!stuck };
@@ -460,6 +479,7 @@
     $("nick").onkeydown = (e) => { if (e.key === "Enter" && !$("play").disabled) play(); };
     $("btn-copy").onclick = copyAddress;
     $("btn-recheck").onclick = refreshFivem;
+    $("btn-pick-fivem").onclick = pickFivem;
     $("btn-close-fivem").onclick = closeFivem;
     $("btn-update").onclick = installUpdate;
     document.querySelectorAll(".tab").forEach((b) => { b.onclick = () => showTab(b.dataset.tab); });
@@ -500,6 +520,7 @@
   // answer about the nick. A nick with "admin"/"админ" is rejected like the server does, "often" — too often.
   // ?run=open — FiveM is open (the link goes into it), ?run=starting — still starting, ?run=stuck — stuck in the
   // background («Close FiveM» button; ?run=stuck&close=fail — could not close everything).
+  // ?fivem=0&pick=ok — «Choose FiveM.exe manually» finds it, &pick=wrong — the chosen file is not FiveM.exe.
   function previewTauri() {
     const q = new URLSearchParams(location.search);
     const data = {
@@ -541,6 +562,12 @@
         return { action: run === "open" ? "passed" : run === "starting" ? "starting" : "launched" };
       }
       if (cmd === "close_fivem") return q.get("close") === "fail" ? [2, 1] : [3, 0];
+      if (cmd === "pick_fivem") {
+        await new Promise((r) => setTimeout(r, 300));
+        if (q.get("pick") === "wrong") throw "not_fivem";
+        if (q.get("pick") === "ok") return { installed: true, path: "D:\\Games\\FiveM\\FiveM.exe", foundBy: "manual" };
+        return null;
+      }
       if (cmd === "open_external") { console.log("[preview]", cmd); return "ok"; }
       return data[cmd];
     };

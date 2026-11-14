@@ -137,6 +137,29 @@ pub fn processes() -> Vec<Proc> {
     Vec::new()
 }
 
+/// Full path of a process exe (fivem.rs: where a running FiveM lives). None — no rights or already gone.
+#[cfg(windows)]
+pub fn exe_path(pid: u32) -> Option<std::path::PathBuf> {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION};
+    unsafe {
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if h.is_null() {
+            return None;
+        }
+        let mut buf = vec![0u16; 32768];
+        let mut len = buf.len() as u32;
+        let ok = QueryFullProcessImageNameW(h, 0, buf.as_mut_ptr(), &mut len) != 0;
+        CloseHandle(h);
+        (ok && len > 0).then(|| std::path::PathBuf::from(String::from_utf16_lossy(&buf[..len as usize])))
+    }
+}
+
+#[cfg(not(windows))]
+pub fn exe_path(_pid: u32) -> Option<std::path::PathBuf> {
+    None
+}
+
 /// Ends every process whose exe matches `pick`. Returns (closed, failed) — failed: no rights (FiveM run as
 /// administrator) or already gone.
 #[cfg(windows)]
@@ -223,6 +246,9 @@ mod tests {
         let list = processes();
         let mine = list.iter().find(|p| p.pid == me).expect("own process in the list");
         assert!(!is_fivem(&mine.exe));
+        // its full path is the test binary itself (fivem.rs reads paths of running FiveM this way)
+        let path = exe_path(me).expect("own exe path");
+        assert_eq!(path.file_name(), std::env::current_exe().unwrap().file_name());
 
         // a throwaway copy of cmd.exe under a unique name: close_matching ends it (never touches a real FiveM)
         let dir = std::env::temp_dir().join(format!("coldz-close-test-{me}"));

@@ -74,6 +74,8 @@
         <p class="fivem__text" id="fivem-text"></p>
         <div class="fivem__actions" id="fivem-actions" hidden>
           <button class="btn btn--accent" id="btn-download" data-i18n="download_fivem"></button>
+          <!-- 0.3.2: FiveM стоит, а лаунчер его не нашёл: указать FiveM.exe самому (src-tauri/src/fivem.rs) -->
+          <button class="btn" id="btn-pick-fivem" data-i18n="pick_fivem"></button>
           <button class="btn" id="btn-recheck" data-i18n="recheck"></button>
         </div>
         <!-- FiveM завис в фоне (13.11, ошибка «LinkProtocolIPC»): закрыть все процессы FiveM, src-tauri/src/running.rs -->
