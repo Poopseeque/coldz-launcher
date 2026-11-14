@@ -68,6 +68,8 @@
       <p class="address" id="address">
         <span id="address-text"></span>
         <button class="address__copy" id="btn-copy" hidden data-i18n="copy"></button>
+        <!-- 15.11: связь с серверами FiveM (Cfx.re) и сервером COLDZ, src-tauri/src/netcheck.rs -->
+        <button class="address__copy" id="btn-net" data-i18n="net_check"></button>
       </p>
 
       <div class="fivem" id="fivem" data-state="checking">
@@ -108,6 +110,23 @@
       <p class="legal__contact"><span data-i18n="contact"></span>: <a href="#" id="email"></a></p>
     </div>
   </footer>
+
+  <!-- Проверка связи (15.11): по «Играть» и «Проверить связь». Серверы FiveM (Cfx.re) и сервер COLDZ отдельно:
+       игрок видит, чья это проблема (src-tauri/src/netcheck.rs, README 7б). Карточка поверх окна, а не под «Играть»:
+       так она не сдвигает кнопки под значки соцсетей на окне 1120×680. -->
+  <div class="dialog" id="net" hidden>
+    <div class="dialog__card" role="dialog" aria-modal="true" aria-labelledby="net-title">
+      <h2 class="dialog__title" id="net-title" data-i18n="net_title"></h2>
+      <p class="dialog__text" id="net-text"></p>
+      <ul class="netlist" id="net-list"></ul>
+      <p class="dialog__hint" id="net-hint" hidden></p>
+      <div class="dialog__actions">
+        <button class="btn btn--accent" id="btn-net-play" hidden></button>
+        <button class="btn" id="btn-net-recheck" data-i18n="recheck"></button>
+        <button class="btn" id="btn-net-close" data-i18n="close"></button>
+      </div>
+    </div>
+  </div>
 
   <script src="i18n.js"></script>
   <script src="icons.js"></script>

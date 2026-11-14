@@ -290,6 +290,53 @@ button, select { font: inherit; color: inherit; }
   border-radius: 3px;
 }
 
+/* ---------- connection check (15.11): a black card over the window (not under Play: there it would push the
+   buttons under the social icons at 1120 x 680). The title bar stays free: the window can still be moved and closed. */
+.dialog {
+  position: fixed; left: 0; right: 0; bottom: 0; top: var(--titlebar);
+  z-index: 5;
+  display: grid; place-items: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, .62);
+  backdrop-filter: blur(3px);
+}
+.dialog__card {
+  width: min(560px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 20px 22px 18px;
+  background: rgba(8, 8, 10, .95);
+  border: 1px solid var(--line);
+  border-top: 2px solid var(--blood);
+  border-radius: 3px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .8);
+  user-select: text; -webkit-user-select: text;
+}
+.dialog__title {
+  margin: 0 0 12px;
+  font-family: var(--display); font-size: 12px; font-weight: 400; letter-spacing: .28em; text-transform: uppercase;
+  color: var(--faint);
+}
+.dialog__text { margin: 0; font-size: 15px; line-height: 1.5; color: var(--ink); }
+.dialog[data-state="bad"] .dialog__text { color: #ffd7d9; }
+.dialog__hint { margin: 12px 0 0; line-height: 1.5; color: var(--muted); }
+.dialog__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.dialog__actions .btn { padding: 7px 14px; }
+
+.netlist { list-style: none; margin: 14px 0 0; padding: 10px 0 0; border-top: 1px solid var(--line); display: grid; gap: 5px; }
+.netlist li {
+  display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 8px; align-items: baseline;
+  font-size: 13px; color: var(--muted);
+}
+.netlist li::before { content: "·"; color: var(--amber); text-align: center; }
+.netlist li[data-state="wait"]::before { animation: blink 1s infinite alternate; }
+.netlist li[data-state="ok"]::before { content: "✓"; color: var(--green); }
+.netlist li[data-state="fail"]::before { content: "✗"; color: var(--blood-hi); }
+.netlist li[data-state="none"]::before { color: var(--faint); }
+.netlist__state { color: var(--faint); white-space: nowrap; }
+.netlist li[data-state="fail"] .netlist__state { color: #ffb4b8; }
+.netlist .netlist__server { margin-top: 4px; padding-top: 6px; border-top: 1px dashed rgba(255, 255, 255, .08); }
+
 /* ---------- news / rules panel */
 .panel {
   display: flex; flex-direction: column;
