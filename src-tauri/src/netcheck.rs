@@ -287,7 +287,8 @@ pub async fn answers(url: &str) -> bool {
 }
 
 /// The whole check: all Cfx.re services at once, plus the COLDZ server (`server`) and a host outside Cfx.re
-/// (`control`) in parallel. Takes about a second when everything answers, at most ~9 seconds when something hangs.
+/// (`control`) in parallel. Takes about a second when everything answers, at most ~10 seconds when something hangs
+/// (8 s per service, plus one quick retry after a fast failure).
 pub async fn run<S, C>(server: S, control: C) -> Report
 where
     S: std::future::Future<Output = Option<bool>>,
