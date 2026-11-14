@@ -94,6 +94,24 @@
   ],
   "items": [
     {
+      "id": "clans-promo-2026-11",
+      "date": "2026-11-15",
+      "pinned": true,
+      "title": {
+        "ru": "Акция для кланов: база на 2 месяца бесплатно",
+        "en": "Clan offer: a free base for 2 months",
+        "es": "Promoción para clanes: base gratis por 2 meses",
+        "pt-BR": "Promoção para clãs: base grátis por 2 meses"
+      },
+      "body": {
+        "ru": "Клан от 5 человек получает свою базу на 2 месяца бесплатно. Акция до 1 декабря.\nКак получить:\n• В игре: глава клана открывает F2 → «Купить базу» → «Запросить свою базу» и пишет в комментарии «Акция для кланов».\n• Или напишите в сообщения группы ВК: название клана и ники участников.\nБазу подберёт администрация.",
+        "en": "A clan of 5 or more players gets its own base for 2 months for free. The offer runs until December 1.\nHow to get it:\n• In game: the clan leader opens F2 → \"Buy a base\" → \"Request your own base\" and writes \"Clan offer\" in the comment.\n• Or message our VK group: the clan name and the members' nicknames.\nThe administration picks the base.",
+        "es": "Un clan de 5 o más jugadores recibe su propia base gratis durante 2 meses. La promoción dura hasta el 1 de diciembre.\nCómo conseguirla:\n• En el juego: el líder del clan abre F2 → «Comprar una base» → «Pedir tu propia base» y escribe «Promoción para clanes» en el comentario.\n• O escribe a nuestro grupo de VK: el nombre del clan y los apodos de los miembros.\nLa administración elige la base.",
+        "pt-BR": "Um clã com 5 ou mais jogadores ganha a própria base de graça por 2 meses. A promoção vai até 1º de dezembro.\nComo conseguir:\n• No jogo: o líder do clã abre F2 → «Comprar uma base» → «Pedir sua própria base» e escreve «Promoção para clãs» no comentário.\n• Ou mande mensagem para o nosso grupo no VK: o nome do clã e os apelidos dos membros.\nA administração escolhe a base."
+      },
+      "url": "https://vk.ru/wall-242530578_119"
+    },
+    {
       "id": "update-2026-11-14",
       "date": "2026-11-14",
       "pinned": true,
