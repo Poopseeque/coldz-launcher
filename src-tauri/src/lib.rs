@@ -9,8 +9,8 @@
 //!   * downloads a news JSON file (it may also carry the server address and the rules,
 //!     so both can be changed without a new launcher build),
 //!   * sends the player's nickname to our own server before "Play" (nick.rs: `POST /z_menu/nick`),
-//!   * before "Play" and on «Проверить связь» asks the Cfx.re services FiveM needs and our server separately
-//!     (netcheck.rs): a provider that cuts Cfx.re is not the COLDZ server's fault,
+//!   * at start, before "Play" and on «Проверить связь» asks the Cfx.re services FiveM needs and our server
+//!     separately (netcheck.rs): a provider that cuts Cfx.re is not the COLDZ server's fault,
 //!   * updates itself through the Tauri updater (signed with our own key).
 
 mod fivem;
@@ -497,13 +497,14 @@ fn net_log_path(app: &AppHandle) -> Option<PathBuf> {
     app.path().app_config_dir().ok().map(|d| d.join("net-check.log"))
 }
 
-/// «Проверить связь» and the check before «Играть» (netcheck.rs): the Cfx.re services FiveM needs, our server
-/// separately (the same requests as the status line), GitHub (news) to tell "Cfx.re is cut" from "no internet".
+/// «Проверить связь», the check before «Играть» and (0.3.4) once at launcher start (netcheck.rs): the Cfx.re services
+/// FiveM needs, our server separately (`/info.json`, the first thing FiveM asks when it joins), GitHub (news) to tell
+/// "Cfx.re is cut" from "no internet".
 #[tauri::command]
 async fn check_network(app: AppHandle) -> netcheck::Report {
     let server = async {
         match effective_address().map(|a| parse_address(&a)) {
-            Some(Target::Direct { host, port }) => Some(status_direct(&host, port).await.online),
+            Some(Target::Direct { host, port }) => Some(netcheck::server_answers(&format!("http://{host}:{port}/info.json")).await),
             // no address yet, or a cfx.re/join code: its status itself comes from Cfx.re
             _ => None,
         }

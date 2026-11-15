@@ -180,6 +180,7 @@
     const showing = !!(fivemMessage && Date.now() < fivemMessage.until);
     // «Закрыть FiveM» — только пока висит сообщение «FiveM завис» (stuck)
     $("fivem-stuck").hidden = !(showing && fivemMessage.stuck);
+    $("fivem-net").hidden = true;
     if (showing) {
       box.dataset.state = "message";
       text.textContent = t(fivemMessage.key, { a: address || "—" });
@@ -189,6 +190,17 @@
     fivemMessage = null;
     if (box.dataset.state === "checking" && !cfg) {
       text.textContent = t("fivem_checking");
+      return;
+    }
+    // 0.3.4: the last connection check says FiveM will not start or join: that line instead of «можно играть».
+    // «Играть» stays enabled (it checks again and offers «Всё равно играть»).
+    const advice = fivemInstalled ? netAdvice(net.report) : null;
+    if (advice) {
+      box.dataset.state = net.running ? "netcheck" : "net";
+      text.textContent = t(net.running ? "net_checking_short" : advice);
+      actions.hidden = true;
+      $("fivem-net").hidden = false;
+      $("btn-net-retry").disabled = !!net.running;
       return;
     }
     box.dataset.state = fivemInstalled ? "ok" : "missing";
@@ -245,27 +257,38 @@
   }
 
   // ------------------------------------------------------------ connection check (15.11)
-  // Before «Играть» and on «Проверить связь»: the Cfx.re services FiveM needs, the COLDZ server separately
-  // (src-tauri/src/netcheck.rs). A provider that cuts Cfx.re makes FiveM hang or fail at start, and players blame
-  // COLDZ: the card says whose problem it is. Advice: only the internet, the router, another network.
+  // Before «Играть», on «Проверить связь» and (0.3.4) once at launcher start: the Cfx.re services FiveM needs, the
+  // COLDZ server separately (src-tauri/src/netcheck.rs). A provider that cuts Cfx.re makes FiveM hang or fail at start,
+  // and players blame COLDZ: the window says whose problem it is. Advice: only another network, the internet, the
+  // router, later. Never anything else (README 7б).
   const NET_SERVICES = ["update", "auth", "policy", "services", "list"];
   const NET_FRESH_MS = 60000;   // «Играть» does not repeat an OK check this fresh
+  // report: the last finished check (kept while a new one runs), null — none yet or the check itself failed
   const net = { report: null, at: 0, running: null, fromPlay: false };
 
-  // FiveM will not start or will not get into COLDZ: «Играть» shows the card first. A cut server list alone does not
-  // stop it (fivem://connect does not need the list).
+  // FiveM will not start, will not get into COLDZ, or COLDZ does not answer: «Играть» shows the card first
+  // («Всё равно играть» / «Повторить»). A cut server list alone does not stop it (fivem://connect does not need it).
   function netStops(r) {
-    return !!r && (r.verdict === "offline" || (r.verdict === "cfx_blocked" && !!r.blocking));
+    return !!r && (r.verdict === "offline" || r.verdict === "server_down" || (r.verdict === "cfx_blocked" && !!r.blocking));
+  }
+
+  // The line under «Играть» (0.3.4): only what stops FiveM itself. The COLDZ server being down is already in the
+  // status above and comes up in the card on «Играть».
+  function netAdvice(r) {
+    if (!r) return null;
+    if (r.verdict === "offline") return "net_offline";
+    if (r.verdict === "cfx_blocked" && r.blocking) return "net_cfx";
+    return null;
   }
 
   function runNetCheck() {
     if (net.running) return net.running;
-    net.report = null;
     net.running = invoke("check_network")
-      .then((r) => { net.report = r || null; net.at = Date.now(); return net.report; })
       .catch((e) => { console.warn("net check:", e); return null; })
-      .finally(() => { net.running = null; renderNet(); });
+      .then((r) => { net.report = r || null; net.at = Date.now(); return net.report; })
+      .finally(() => { net.running = null; renderNet(); renderFivem(); });
     renderNet();
+    renderFivem();
     return net.running;
   }
 
@@ -308,27 +331,31 @@
 
     let text;
     let hint = "";
-    let state = "ok";
+    let state = "bad";
     if (running) {
       text = t("net_checking");
       state = "checking";
     } else if (!r) {
       text = t("net_failed");
-      state = "bad";
     } else if (r.verdict === "ok") {
       text = t(r.server === true ? "net_ok" : "net_ok_fivem");
+      state = "ok";
+    } else if (r.verdict === "offline") {
+      text = t("net_offline");
+      hint = t("net_advice");
+    } else if (r.verdict === "cfx_blocked" && r.blocking) {
+      text = t("net_cfx");               // the text agreed with Alexander: it already says what to do
     } else if (r.verdict === "server_down") {
       text = t("net_server_down");
     } else {
-      text = t(r.verdict === "offline" ? "net_offline" : "net_cfx");
-      hint = t("net_advice");
-      state = "bad";
+      text = t("net_partial");           // only the server list or Cfx.re services: FiveM starts and joins COLDZ
+      state = "ok";
     }
     box.dataset.state = state;
     $("net-text").textContent = text;
     $("net-hint").textContent = hint;
     $("net-hint").hidden = !hint;
-    // «Запустить всё равно» (the check can be wrong; the player decides) or «Играть» after a good re-check
+    // «Всё равно играть» (the check can be wrong; the player decides) or «Играть» after a good re-check
     const go = $("btn-net-play");
     go.hidden = !net.fromPlay || running;
     go.textContent = t(!r || netStops(r) ? "play_anyway" : "play");
@@ -365,7 +392,8 @@
       $("nick").focus();
       return;
     }
-    // FiveM would hang or fail without Cfx.re: say whose problem it is and let the player choose.
+    // FiveM would hang or fail without Cfx.re, or COLDZ does not answer: say whose problem it is and let the player
+    // choose («Всё равно играть» / «Повторить»).
     if (netStops(netRes)) {
       release(0);
       openNet(true);
@@ -589,6 +617,8 @@
     $("btn-update").onclick = installUpdate;
     $("btn-net").onclick = () => { openNet(false); runNetCheck(); };
     $("btn-net-recheck").onclick = () => { runNetCheck(); };
+    $("btn-net-retry").onclick = () => { runNetCheck(); };
+    $("btn-net-details").onclick = () => { openNet(false); };
     $("btn-net-close").onclick = closeNet;
     $("btn-net-play").onclick = () => { closeNet(); play({ fromNet: true }); };
     document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("net").hidden) closeNet(); });
@@ -608,8 +638,10 @@
 
     await refreshFivem();
     refreshStatus();
-    // news.json may bring a new server address: check the status again right after it.
-    loadNews().then(refreshStatus);
+    // news.json may bring a new server address: check the status again right after it. Then (0.3.4) the connection
+    // check once, quietly: about a second and ~70 KB; only a problem shows up (the line under «Играть»), and «Играть»
+    // within a minute of a good result does not wait for a new one.
+    loadNews().then(() => { refreshStatus(); runNetCheck(); });
     setTimeout(checkUpdate, 1500);
 
     setInterval(refreshStatus, STATUS_EVERY_MS);
@@ -632,10 +664,14 @@
   // background («Close FiveM» button; ?run=stuck&close=fail — could not close everything).
   // ?fivem=0&pick=ok — «Choose FiveM.exe manually» finds it, &pick=wrong — the chosen file is not FiveM.exe.
   // Connection check (15.11): ?net=blocked — Cfx.re cut, COLDZ answers (the card on «Играть»), ?net=list — only the
-  // server list is cut (no card on «Играть»), ?net=offline — nothing answers, ?net=server — the COLDZ server is down.
+  // server list is cut (no card on «Играть»), ?net=offline — nothing answers, ?net=server — the COLDZ server is down,
+  // ?net=listserver — the server list and the COLDZ server (0.3.4: «server_down» first).
+  // 0.3.4: the check also runs at start (blocked/offline: the line under «Играть»). ?netseq=blocked,ok — one mode per
+  // check in turn (start, «Играть» / «Повторить», ...), the last one repeats: another network after «Повторить».
   // &card=play — press «Играть» by itself after start, &card=check — «Проверить связь» (screenshots without clicks).
   function previewTauri() {
     const q = new URLSearchParams(location.search);
+    let netCalls = 0;
     const card = q.get("card");
     if (card === "play" || card === "check") {
       setTimeout(() => document.getElementById(card === "play" ? "play" : "btn-net").click(), 1500);
@@ -681,7 +717,8 @@
       if (cmd === "close_fivem") return q.get("close") === "fail" ? [2, 1] : [3, 0];
       if (cmd === "check_network") {
         await new Promise((r) => setTimeout(r, 900));
-        const mode = q.get("net") || "ok";
+        const seq = (q.get("netseq") || q.get("net") || "ok").split(",");
+        const mode = seq[Math.min(netCalls++, seq.length - 1)];
         const svc = (id, ok, problem, critical) => ({ id, host: id + ".example", ok, problem: ok ? null : problem, status: ok ? 200 : null, bytes: 0, ms: 120, critical });
         const cut = mode === "blocked" || mode === "offline";
         const services = [
@@ -689,10 +726,10 @@
           svc("auth", !cut, "tls", true),
           svc("policy", !cut, "timeout", true),
           svc("services", mode !== "offline", "tls", false),
-          svc("list", !cut && mode !== "list", "tls", false)
+          svc("list", !cut && mode !== "list" && mode !== "listserver", "tls", false)
         ];
-        const server = mode === "offline" || mode === "server" ? false : true;
-        const verdict = { blocked: "cfx_blocked", list: "cfx_blocked", offline: "offline", server: "server_down" }[mode] || "ok";
+        const server = !["offline", "server", "listserver"].includes(mode);
+        const verdict = { blocked: "cfx_blocked", list: "cfx_blocked", offline: "offline", server: "server_down", listserver: "server_down" }[mode] || "ok";
         return { verdict, blocking: cut, services, server, ms: 900 };
       }
       if (cmd === "pick_fivem") {

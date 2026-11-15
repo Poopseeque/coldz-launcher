@@ -84,6 +84,13 @@
         <div class="fivem__actions" id="fivem-stuck" hidden>
           <button class="btn btn--accent" id="btn-close-fivem" data-i18n="close_fivem"></button>
         </div>
+        <!-- 0.3.4: проверка связи (при запуске лаунчера, «Играть», «Повторить») нашла, без чего FiveM не запустится:
+             строка вместо «FiveM установлен», «Играть» не блокируется. Ссылки, а не кнопки: вместе с плашкой
+             обновления всё влезает в окно 1120×680 -->
+        <p class="fivem__links" id="fivem-net" hidden>
+          <button class="address__copy" id="btn-net-retry" data-i18n="net_retry"></button>
+          <button class="address__copy" id="btn-net-details" data-i18n="net_details"></button>
+        </p>
       </div>
 
       <div class="update" id="update" hidden>
@@ -111,7 +118,8 @@
     </div>
   </footer>
 
-  <!-- Проверка связи (15.11): по «Играть» и «Проверить связь». Серверы FiveM (Cfx.re) и сервер COLDZ отдельно:
+  <!-- Проверка связи (15.11): по «Играть» и «Проверить связь» (с 0.3.4 ещё тихо при запуске лаунчера, «Подробнее»
+       под «Играть»). Серверы FiveM (Cfx.re) и сервер COLDZ отдельно:
        игрок видит, чья это проблема (src-tauri/src/netcheck.rs, README 7б). Карточка поверх окна, а не под «Играть»:
        так она не сдвигает кнопки под значки соцсетей на окне 1120×680. -->
   <div class="dialog" id="net" hidden>
@@ -122,7 +130,7 @@
       <p class="dialog__hint" id="net-hint" hidden></p>
       <div class="dialog__actions">
         <button class="btn btn--accent" id="btn-net-play" hidden></button>
-        <button class="btn" id="btn-net-recheck" data-i18n="recheck"></button>
+        <button class="btn" id="btn-net-recheck" data-i18n="net_retry"></button>
         <button class="btn" id="btn-net-close" data-i18n="close"></button>
       </div>
     </div>

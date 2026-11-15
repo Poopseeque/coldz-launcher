@@ -64,18 +64,23 @@ window.I18N = {
     nick_sent_fivem: "На сервере будет ваш ник из FiveM.",
     nick_unreachable: "Сервер не ответил, ник не поменяли: остался прежний.",
     // 15.11: связь с серверами FiveM (Cfx.re) и сервером COLDZ (src-tauri/src/netcheck.rs). Советуем только
-    // интернет, роутер и другую сеть: никаких способов обхода блокировок (в РФ их популяризация запрещена с 1.03.2024).
+    // интернет, роутер и другую сеть: никаких способов обхода блокировок (в РФ их популяризация запрещена с 1.03.2024,
+    // реклама наказывается штрафом с 1.09.2025). 0.3.4: net_cfx и net_server_down — тексты, согласованные
+    // с Александром (тире заменено двоеточием по его правилу), не менять без его слова.
     net_check: "Проверить связь",
     net_title: "Связь с серверами",
     net_checking: "Проверяем связь с серверами FiveM и сервером COLDZ…",
     net_checking_short: "Проверяем связь…",
     net_ok: "Связь в порядке: серверы FiveM и сервер COLDZ отвечают.",
     net_ok_fivem: "Связь с серверами FiveM в порядке.",
-    net_cfx: "FiveM не может связаться со своими серверами. Это проблема доступа у вашего провайдера, а не сервера COLDZ.",
+    net_cfx: "Серверы FiveM недоступны у вашего провайдера. Попробуйте другую сеть (например, мобильный интернет) или повторите позже.",
+    net_partial: "Часть серверов FiveM недоступна у вашего провайдера, но войти на COLDZ через лаунчер это не мешает.",
     net_offline: "Нет связи с интернетом: не отвечают ни серверы FiveM, ни сервер COLDZ.",
-    net_server_down: "Серверы FiveM отвечают, а сервер COLDZ сейчас нет: возможно, он перезапускается. Попробуйте через пару минут.",
-    net_advice: "Что можно сделать: проверить интернет, перезапустить роутер, попробовать другую сеть. Потом нажмите «Проверить снова».",
-    net_failed: "Не удалось проверить связь. Нажмите «Проверить снова».",
+    net_server_down: "Сервер COLDZ сейчас недоступен: возможно, идёт перезапуск. Попробуйте через пару минут.",
+    net_advice: "Что можно сделать: проверить интернет, перезапустить роутер, попробовать другую сеть. Потом нажмите «Повторить».",
+    net_failed: "Не удалось проверить связь. Нажмите «Повторить».",
+    net_retry: "Повторить",
+    net_details: "Подробнее",
     svc_update: "Обновление FiveM",
     svc_auth: "Вход и лицензия FiveM",
     svc_policy: "Подключение к серверам",
@@ -88,7 +93,7 @@ window.I18N = {
     net_server_ok: "отвечает",
     net_server_fail: "не отвечает",
     net_server_none: "не проверялся",
-    play_anyway: "Запустить всё равно"
+    play_anyway: "Всё равно играть"
   },
   en: {
     lead: "Winter never ends. Find warmth, food and ammo before the dead or the living find you.",
@@ -156,11 +161,14 @@ window.I18N = {
     net_checking_short: "Checking connection…",
     net_ok: "Connection is fine: the FiveM servers and the COLDZ server answer.",
     net_ok_fivem: "The connection to the FiveM servers is fine.",
-    net_cfx: "FiveM cannot reach its own servers. This is an access problem at your internet provider, not a problem with the COLDZ server.",
+    net_cfx: "FiveM servers are unavailable through your internet provider. Try another network (for example, mobile data) or try again later.",
+    net_partial: "Some FiveM servers are unavailable through your internet provider, but this does not stop you from joining COLDZ through the launcher.",
     net_offline: "No internet connection: neither the FiveM servers nor the COLDZ server answer.",
-    net_server_down: "The FiveM servers answer, but the COLDZ server does not right now: it may be restarting. Try again in a couple of minutes.",
-    net_advice: "What you can do: check your internet connection, restart your router, try another network. Then press \"Check again\".",
-    net_failed: "Could not check the connection. Press \"Check again\".",
+    net_server_down: "The COLDZ server is unavailable right now: it may be restarting. Try again in a couple of minutes.",
+    net_advice: "What you can do: check your internet connection, restart your router, try another network. Then press \"Retry\".",
+    net_failed: "Could not check the connection. Press \"Retry\".",
+    net_retry: "Retry",
+    net_details: "Details",
     svc_update: "FiveM updates",
     svc_auth: "FiveM sign-in and license",
     svc_policy: "Joining servers",
@@ -173,7 +181,7 @@ window.I18N = {
     net_server_ok: "answers",
     net_server_fail: "does not answer",
     net_server_none: "not checked",
-    play_anyway: "Start anyway"
+    play_anyway: "Play anyway"
   },
   es: {
     lead: "El invierno no termina. Busca calor, comida y munición antes de que te encuentren los muertos o los vivos.",
@@ -241,11 +249,14 @@ window.I18N = {
     net_checking_short: "Comprobando conexión…",
     net_ok: "La conexión está bien: responden los servidores de FiveM y el servidor COLDZ.",
     net_ok_fivem: "La conexión con los servidores de FiveM está bien.",
-    net_cfx: "FiveM no puede conectarse con sus propios servidores. Es un problema de acceso de tu proveedor de internet, no del servidor COLDZ.",
+    net_cfx: "Los servidores de FiveM no están disponibles con tu proveedor de internet. Prueba otra red (por ejemplo, datos móviles) o vuelve a intentarlo más tarde.",
+    net_partial: "Algunos servidores de FiveM no están disponibles con tu proveedor de internet, pero eso no te impide entrar en COLDZ desde el lanzador.",
     net_offline: "Sin conexión a internet: no responden ni los servidores de FiveM ni el servidor COLDZ.",
-    net_server_down: "Los servidores de FiveM responden, pero el servidor COLDZ ahora no: quizá se está reiniciando. Inténtalo en un par de minutos.",
-    net_advice: "Qué puedes hacer: revisar tu conexión a internet, reiniciar el router, probar otra red. Después pulsa «Comprobar de nuevo».",
-    net_failed: "No se pudo comprobar la conexión. Pulsa «Comprobar de nuevo».",
+    net_server_down: "El servidor COLDZ no está disponible ahora mismo: puede que se esté reiniciando. Inténtalo dentro de un par de minutos.",
+    net_advice: "Qué puedes hacer: revisar tu conexión a internet, reiniciar el router, probar otra red. Después pulsa «Reintentar».",
+    net_failed: "No se pudo comprobar la conexión. Pulsa «Reintentar».",
+    net_retry: "Reintentar",
+    net_details: "Detalles",
     svc_update: "Actualizaciones de FiveM",
     svc_auth: "Inicio de sesión y licencia de FiveM",
     svc_policy: "Entrada a servidores",
@@ -258,7 +269,7 @@ window.I18N = {
     net_server_ok: "responde",
     net_server_fail: "no responde",
     net_server_none: "no comprobado",
-    play_anyway: "Iniciar de todos modos"
+    play_anyway: "Jugar de todos modos"
   },
   "pt-BR": {
     lead: "O inverno não acaba. Encontre calor, comida e munição antes que os mortos ou os vivos encontrem você.",
@@ -326,11 +337,14 @@ window.I18N = {
     net_checking_short: "Verificando conexão…",
     net_ok: "A conexão está ok: os servidores do FiveM e o servidor COLDZ respondem.",
     net_ok_fivem: "A conexão com os servidores do FiveM está ok.",
-    net_cfx: "O FiveM não consegue se conectar aos próprios servidores. É um problema de acesso do seu provedor de internet, não do servidor COLDZ.",
+    net_cfx: "Os servidores do FiveM estão indisponíveis no seu provedor de internet. Tente outra rede (por exemplo, dados móveis) ou tente de novo mais tarde.",
+    net_partial: "Alguns servidores do FiveM estão indisponíveis no seu provedor de internet, mas isso não impede você de entrar no COLDZ pelo launcher.",
     net_offline: "Sem conexão com a internet: nem os servidores do FiveM nem o servidor COLDZ respondem.",
-    net_server_down: "Os servidores do FiveM respondem, mas o servidor COLDZ agora não: talvez esteja reiniciando. Tente de novo em alguns minutos.",
-    net_advice: "O que você pode fazer: verificar a internet, reiniciar o roteador, tentar outra rede. Depois clique em «Verificar de novo».",
-    net_failed: "Não foi possível testar a conexão. Clique em «Verificar de novo».",
+    net_server_down: "O servidor COLDZ está indisponível agora: talvez esteja reiniciando. Tente de novo em alguns minutos.",
+    net_advice: "O que você pode fazer: verificar a internet, reiniciar o roteador, tentar outra rede. Depois clique em «Tentar de novo».",
+    net_failed: "Não foi possível testar a conexão. Clique em «Tentar de novo».",
+    net_retry: "Tentar de novo",
+    net_details: "Detalhes",
     svc_update: "Atualizações do FiveM",
     svc_auth: "Login e licença do FiveM",
     svc_policy: "Entrada nos servidores",
@@ -343,6 +357,6 @@ window.I18N = {
     net_server_ok: "responde",
     net_server_fail: "não responde",
     net_server_none: "não verificado",
-    play_anyway: "Abrir mesmo assim"
+    play_anyway: "Jogar mesmo assim"
   }
 };

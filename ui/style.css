@@ -264,6 +264,13 @@ button, select { font: inherit; color: inherit; }
 .fivem[data-state="ok"] .fivem__text::before { content: "✓ "; color: var(--green); }
 .fivem[data-state="missing"] .fivem__text { color: #ffd7d9; }
 .fivem[data-state="message"] .fivem__text { color: var(--ink); }
+/* 0.3.4: the connection check found what stops FiveM (Cfx.re cut, no internet): this line instead of «можно играть»,
+   «Повторить» and «Подробнее» under it as links like «Копировать» (with the update bar too, all fits at 1120 x 680) */
+.fivem[data-state="net"] .fivem__text { color: #ffd7d9; }
+.fivem[data-state="net"] .fivem__text::before { content: "✗ "; color: var(--blood-hi); }
+.fivem[data-state="netcheck"] .fivem__text { color: var(--muted); }
+.fivem__links { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 5px 0 0; }
+.fivem__links .address__copy:disabled { color: var(--faint); cursor: default; text-decoration: none; }
 .fivem__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 /* 0.3.2: three buttons in one row at the default window size (1120 x 680): above the social icons */
 .fivem__actions .btn { padding: 7px 12px; }

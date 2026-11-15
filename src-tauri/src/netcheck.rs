@@ -1,4 +1,4 @@
-//! Connection check before «Играть» and on «Проверить связь» (15.11.2026).
+//! Connection check before «Играть», on «Проверить связь» (15.11.2026) and once at launcher start (0.3.4).
 //!
 //! Since 2025 some Russian providers cut access to foreign services (since 9.06.2025 Cloudflare-hosted sites load
 //! only the first 16 KB, then the connection hangs; Hetzner, DigitalOcean, OVH too:
@@ -12,6 +12,10 @@
 //!
 //! Nothing about the player is sent: plain GET/HEAD requests, no cookies, no ids, the same User-Agent as the rest of
 //! the launcher. Only a short log of what answered how is kept (net-check.log next to settings.json) for support.
+//!
+//! 0.3.4: also once at launcher start (quiet: only a problem shows up, as a line under «Играть»); short timeouts
+//! (5 s per address); our server is asked `/info.json`, the first thing FiveM asks when it joins; the texts agreed
+//! with Alexander (ui/i18n.js `net_cfx`, `net_server_down`), buttons «Всё равно играть» / «Повторить».
 
 use serde::Serialize;
 use std::net::SocketAddr;
@@ -51,8 +55,12 @@ pub static SERVICES: [Service; 5] = [
 
 /// How much of the update manifest to read: well past the 16 KB after which throttled connections hang.
 pub const VOLUME_BYTES: u64 = 64 * 1024;
-/// One service, all steps and a retry included, is never asked longer than this.
-pub const PROBE_BUDGET: Duration = Duration::from_secs(8);
+/// The time ran out before `VOLUME_BYTES`, but this much had come: a slow connection, not the «16 KB» cut.
+pub const STALL_BYTES: u64 = 32 * 1024;
+/// One attempt at one service, all steps included, is never asked longer than this (0.3.3: 8 s).
+pub const PROBE_BUDGET: Duration = Duration::from_secs(5);
+/// Our server's `/info.json`.
+pub const SERVER_TIMEOUT: Duration = Duration::from_secs(5);
 const DNS_TIMEOUT: Duration = Duration::from_secs(3);
 const TCP_TIMEOUT: Duration = Duration::from_secs(3);
 /// A failure faster than this (name lookup, refused or reset connection) is asked once more: one hiccup of the
@@ -94,16 +102,21 @@ pub struct Report {
 
 /// What the window says, from the answers. `control` — another host outside Cfx.re answered (GitHub, where the
 /// launcher takes its news): tells "Cfx.re is cut" from "no internet" when the COLDZ server is down too.
+/// Order = what stops the player first: no internet, a Cfx.re service FiveM cannot start or join without, our server
+/// (0.3.4: also when only the server list or Cfx.re services are cut, they do not stop the join), the rest of Cfx.re.
 pub fn verdict(services: &[Probe], server: Option<bool>, control: bool) -> &'static str {
     let answered = services.iter().filter(|p| p.ok).count();
-    if answered == services.len() {
-        return if server == Some(false) { "server_down" } else { "ok" };
-    }
     let internet = server == Some(true) || control || answered > 0;
-    if internet {
+    if !internet {
+        "offline"
+    } else if blocking(services) {
+        "cfx_blocked"
+    } else if server == Some(false) {
+        "server_down"
+    } else if answered < services.len() {
         "cfx_blocked"
     } else {
-        "offline"
+        "ok"
     }
 }
 
@@ -126,7 +139,7 @@ fn client() -> reqwest::Client {
     CLIENT
         .get_or_init(|| {
             reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(5))
+                .connect_timeout(TCP_TIMEOUT)
                 // the server list answers with a redirect to a 21 MB file: the redirect itself is the answer
                 .redirect(reqwest::redirect::Policy::none())
                 .user_agent(concat!("COLDZ-Launcher/", env!("CARGO_PKG_VERSION")))
@@ -222,6 +235,8 @@ async fn fetch(client: &reqwest::Client, url: &str, want: u64, deadline: Instant
                 }
             }
             Ok(Ok(None)) => break,
+            // still coming when the time is up, well past the «16 KB»: a slow connection, but it works
+            Err(_) if bytes >= STALL_BYTES => break,
             // the answer started and then stopped or broke: what a throttled connection looks like
             Ok(Err(_)) | Err(_) => return Step { problem: Some("slow"), status: Some(status), bytes, manifest },
         }
@@ -286,9 +301,27 @@ pub async fn answers(url: &str) -> bool {
     matches!(tokio::time::timeout(Duration::from_secs(6), req).await, Ok(Ok(_)))
 }
 
+/// Our server, asked the way FiveM starts every join: `GET http://<address>/info.json` (Cfx.re docs, «Proxy setup»:
+/// the client first fetches `/info.json`, then `POST /client`; FiveM NetLibrary.cpp: «Failed to fetch /info.json to
+/// obtain policy metadata.»). It answers = a JSON object within `SERVER_TIMEOUT`. One request, nothing is sent.
+pub async fn server_answers(url: &str) -> bool {
+    server_answers_within(url, SERVER_TIMEOUT).await
+}
+
+async fn server_answers_within(url: &str, wait: Duration) -> bool {
+    let fetch = async {
+        let resp = client().get(url).send().await.ok()?;
+        if !resp.status().is_success() {
+            return None;
+        }
+        resp.json::<serde_json::Value>().await.ok()
+    };
+    matches!(tokio::time::timeout(wait, fetch).await, Ok(Some(v)) if v.is_object())
+}
+
 /// The whole check: all Cfx.re services at once, plus the COLDZ server (`server`) and a host outside Cfx.re
-/// (`control`) in parallel. Takes about a second when everything answers, at most ~10 seconds when something hangs
-/// (8 s per service, plus one quick retry after a fast failure).
+/// (`control`) in parallel. Takes about a second when everything answers, at most ~7 seconds when something hangs
+/// (5 s per service, plus one quick retry after a fast failure).
 pub async fn run<S, C>(server: S, control: C) -> Report
 where
     S: std::future::Future<Output = Option<bool>>,
@@ -394,6 +427,24 @@ mod tests {
         let list_cut = [p("update", true, true), p("auth", true, true), p("list", false, false)];
         assert_eq!(verdict(&list_cut, Some(true), true), "cfx_blocked");
         assert!(!blocking(&list_cut));
+
+        // 0.3.4: what stops the player comes first. The server list does not stop the join, our server does.
+        assert_eq!(verdict(&list_cut, Some(false), true), "server_down");
+        // a cut Cfx.re service FiveM needs stops it before our server
+        assert_eq!(verdict(&auth_cut, Some(false), true), "cfx_blocked");
+        assert_eq!(verdict(&auth_cut, Some(false), false), "cfx_blocked");
+        // a cfx.re/join code: our server is not asked
+        assert_eq!(verdict(&list_cut, None, false), "cfx_blocked");
+        assert_eq!(verdict(&none, None, true), "cfx_blocked");
+    }
+
+    #[test]
+    fn timeouts_are_short() {
+        // the brief for 0.3.4: 3–5 s per request; «Играть» never waits much longer than that
+        assert!(PROBE_BUDGET <= Duration::from_secs(5));
+        assert!(SERVER_TIMEOUT <= Duration::from_secs(5));
+        assert!(DNS_TIMEOUT <= PROBE_BUDGET && TCP_TIMEOUT <= PROBE_BUDGET);
+        assert!(STALL_BYTES > 16 * 1024 && STALL_BYTES < VOLUME_BYTES);
     }
 
     #[test]
@@ -423,8 +474,12 @@ mod tests {
     enum Fake {
         /// answer `status` with `len` bytes of body
         Answer(u16, usize),
+        /// answer `status` with this body (our server's /info.json)
+        Body(u16, &'static str),
         /// send the headers for `len` bytes, then only `sent` bytes, then hang (the «16 KB» throttling)
         Stall(usize, usize),
+        /// send the headers for `len` bytes, then `chunk` bytes every `ms` milliseconds (a slow connection)
+        Trickle(usize, usize, u64),
         /// accept and never answer
         Silent,
         /// accept and close at once (an https:// client sees its encrypted connection broken)
@@ -462,11 +517,32 @@ mod tests {
                             let _ = sock.write_all(head.as_bytes()).await;
                             let _ = sock.write_all(&vec![b'x'; len]).await;
                         }
+                        Fake::Body(status, body) => {
+                            let head = format!(
+                                "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                                body.len()
+                            );
+                            let _ = sock.write_all(head.as_bytes()).await;
+                            let _ = sock.write_all(body.as_bytes()).await;
+                        }
                         Fake::Stall(len, sent) => {
                             let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {len}\r\n\r\n");
                             let _ = sock.write_all(head.as_bytes()).await;
                             let _ = sock.write_all(&vec![b'x'; sent]).await;
                             tokio::time::sleep(Duration::from_secs(30)).await;
+                        }
+                        Fake::Trickle(len, chunk, ms) => {
+                            let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {len}\r\n\r\n");
+                            let _ = sock.write_all(head.as_bytes()).await;
+                            let mut sent = 0;
+                            while sent < len {
+                                let n = chunk.min(len - sent);
+                                if sock.write_all(&vec![b'x'; n]).await.is_err() {
+                                    return;
+                                }
+                                sent += n;
+                                tokio::time::sleep(Duration::from_millis(ms)).await;
+                            }
                         }
                         Fake::Silent => tokio::time::sleep(Duration::from_secs(30)).await,
                         Fake::Close => {}
@@ -503,6 +579,12 @@ mod tests {
             assert_eq!(s.problem, Some("slow"));
             assert_eq!(s.bytes, 16 * 1024);
 
+            // 0.3.4: a slow connection, 4 KB every 150 ms: still coming when the time is up, past 32 KB: it works
+            let port = fake(Fake::Trickle(99_180, 4 * 1024, 150)).await;
+            let s = fetch(&c, &format!("http://127.0.0.1:{port}/m"), VOLUME_BYTES, soon(1500), true).await;
+            assert_eq!(s.problem, None, "{} bytes", s.bytes);
+            assert!(s.bytes >= STALL_BYTES, "{}", s.bytes);
+
             // connected, no answer
             let port = fake(Fake::Silent).await;
             let s = fetch(&c, &format!("http://127.0.0.1:{port}/"), 0, soon(1200), true).await;
@@ -524,6 +606,37 @@ mod tests {
             // the name does not exist (.invalid never resolves)
             let s = fetch(&c, "https://coldz-check.invalid/", 0, soon(3000), true).await;
             assert_eq!(s.problem, Some("dns"));
+        });
+    }
+
+    /// Our server: `/info.json` answers a JSON object (FXServer: `{"vars": {...}, "resources": [...], ...}`).
+    #[test]
+    fn server_info_json() {
+        rt().block_on(async {
+            let url = |port: u16| format!("http://127.0.0.1:{port}/info.json");
+            let wait = Duration::from_millis(1200);
+
+            let port = fake(Fake::Body(200, r#"{"vars":{"sv_maxClients":"48"},"resources":["z_menu"],"server":"FXServer"}"#)).await;
+            assert!(server_answers_within(&url(port), wait).await);
+
+            // a restart: the HTTP port answers an error, or something that is not FXServer's info
+            for body in [(503, r#"{"error":"starting"}"#), (200, "<html>starting</html>"), (200, "[1,2]")] {
+                let port = fake(Fake::Body(body.0, body.1)).await;
+                assert!(!server_answers_within(&url(port), wait).await, "{body:?}");
+            }
+
+            // connected, no answer: false once the time is up
+            let port = fake(Fake::Silent).await;
+            let started = Instant::now();
+            assert!(!server_answers_within(&url(port), wait).await);
+            assert!(started.elapsed() < wait + Duration::from_millis(500));
+
+            // nobody listens on the port (the server is down)
+            let closed = {
+                let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+                l.local_addr().unwrap().port()
+            };
+            assert!(!server_answers(&url(closed)).await);
         });
     }
 
