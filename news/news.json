@@ -112,6 +112,23 @@
       "url": "https://vk.ru/wall-242530578_119"
     },
     {
+      "id": "launcher-0.3.3",
+      "date": "2026-11-15",
+      "pinned": false,
+      "title": {
+        "ru": "Лаунчер 0.3.3",
+        "en": "Launcher 0.3.3",
+        "es": "Lanzador 0.3.3",
+        "pt-BR": "Launcher 0.3.3"
+      },
+      "body": {
+        "ru": "Если FiveM не может связаться со своими серверами, лаунчер скажет об этом сразу и подскажет, что проверить.",
+        "en": "If FiveM cannot reach its own servers, the launcher tells you right away and suggests what to check.",
+        "es": "Si FiveM no puede conectarse con sus propios servidores, el lanzador te lo dirá enseguida y te indicará qué revisar.",
+        "pt-BR": "Se o FiveM não conseguir se conectar aos próprios servidores, o launcher avisa na hora e mostra o que verificar."
+      }
+    },
+    {
       "id": "update-2026-11-14",
       "date": "2026-11-14",
       "pinned": true,
