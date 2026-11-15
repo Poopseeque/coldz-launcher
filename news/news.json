@@ -112,6 +112,23 @@
       "url": "https://vk.ru/wall-242530578_119"
     },
     {
+      "id": "launcher-0.3.4",
+      "date": "2026-11-15",
+      "pinned": false,
+      "title": {
+        "ru": "Лаунчер 0.3.4",
+        "en": "Launcher 0.3.4",
+        "es": "Lanzador 0.3.4",
+        "pt-BR": "Launcher 0.3.4"
+      },
+      "body": {
+        "ru": "Лаунчер проверяет связь с серверами FiveM сразу при запуске. Если они недоступны у вашего провайдера, лаунчер так и скажет и подскажет попробовать другую сеть (например, мобильный интернет). Играть это не мешает: есть кнопки «Всё равно играть» и «Повторить».",
+        "en": "The launcher checks the connection to the FiveM servers right at start. If they are unavailable through your internet provider, it tells you so and suggests trying another network (for example, mobile data). It never stops you from playing: there are \"Play anyway\" and \"Retry\" buttons.",
+        "es": "El lanzador comprueba la conexión con los servidores de FiveM nada más abrirse. Si no están disponibles con tu proveedor de internet, te lo dice y te sugiere probar otra red (por ejemplo, datos móviles). Nunca te impide jugar: tienes los botones «Jugar de todos modos» y «Reintentar».",
+        "pt-BR": "O launcher testa a conexão com os servidores do FiveM assim que abre. Se eles estiverem indisponíveis no seu provedor de internet, ele avisa e sugere tentar outra rede (por exemplo, dados móveis). Isso nunca impede você de jogar: há os botões «Jogar mesmo assim» e «Tentar de novo»."
+      }
+    },
+    {
       "id": "launcher-0.3.3",
       "date": "2026-11-15",
       "pinned": false,
