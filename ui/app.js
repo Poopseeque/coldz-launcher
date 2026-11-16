@@ -19,6 +19,7 @@
   let fivemMessage = null;   // { key, until }
   let busy = false;
   let address = "";          // address in use ("" = not published yet)
+  let route = null;          // 0.3.5: "main" | "reserve" | "none" | null (src-tauri/src/route.rs)
   let tab = "news";
 
   // ------------------------------------------------------------ language
@@ -73,12 +74,18 @@
     }
     $("btn-copy").hidden = !address;
     $("btn-copy").textContent = t("copy");
+    // 0.3.5: which route «Играть» uses (main server / reserve route); nothing while not chosen or nothing answered
+    const shown = address && (route === "main" || route === "reserve");
+    $("route-text").hidden = !shown;
+    $("route-text").dataset.route = shown ? route : "";
+    $("route-text").textContent = shown ? t("route_" + route) : "";
   }
 
   async function refreshStatus() {
     try {
       const s = await invoke("server_status");
       address = s.address || "";
+      route = s.route || null;
       $("status").dataset.state = !address ? "unset" : s.online ? "online" : "offline";
       $("players").textContent = s.online ? s.players : "—";
       $("max-players").textContent = s.maxPlayers || (cfg && cfg.maxPlayers) || 48;
@@ -286,7 +293,8 @@
     net.running = invoke("check_network")
       .catch((e) => { console.warn("net check:", e); return null; })
       .then((r) => { net.report = r || null; net.at = Date.now(); return net.report; })
-      .finally(() => { net.running = null; renderNet(); renderFivem(); });
+      // 0.3.5: the check also chose the route (main server or reserve route): status, address and the route line
+      .finally(() => { net.running = null; renderNet(); renderFivem(); refreshStatus(); });
     renderNet();
     renderFivem();
     return net.running;
@@ -328,6 +336,11 @@
       const sv = r.server === true ? "ok" : r.server === false ? "fail" : "none";
       line(t("svc_server"), sv, t({ ok: "net_server_ok", fail: "net_server_fail", none: "net_server_none" }[sv]), "netlist__server");
     }
+    // 0.3.5: the reserve routes to COLDZ (src-tauri/src/route.rs); no line when there are none
+    if (r && r.reserve != null) {
+      if (running) line(t("svc_reserve"), "wait", "");
+      else line(t("svc_reserve"), r.reserve ? "ok" : "fail", t(r.reserve ? "net_reserve_ok" : "net_reserve_fail"));
+    }
 
     let text;
     let hint = "";
@@ -338,7 +351,7 @@
     } else if (!r) {
       text = t("net_failed");
     } else if (r.verdict === "ok") {
-      text = t(r.server === true ? "net_ok" : "net_ok_fivem");
+      text = t(r.server === true ? "net_ok" : r.reserve === true ? "net_ok_reserve" : "net_ok_fivem");
       state = "ok";
     } else if (r.verdict === "offline") {
       text = t("net_offline");
@@ -383,6 +396,14 @@
     const fresh = net.report && net.report.verdict === "ok" && Date.now() - net.at < NET_FRESH_MS;
     const netCheck = fromNet || fresh ? Promise.resolve(null) : runNetCheck();
     label.textContent = t(fromNet || fresh ? "launching" : "net_checking_short");
+    // 0.3.5) The route: the main server answers within ~3 s, or the first reserve route that answers
+    // (src-tauri/src/route.rs). The nick and FiveM then go the same way.
+    const chosen = await invoke("choose_route").catch(() => null);
+    if (chosen && chosen.address) {
+      address = chosen.address;
+      route = chosen.kind;
+      renderAddress();
+    }
     // 1) The nick to our server. It said no — show why under the field and do not start FiveM.
     $("nick").value = checked.nick;
     const [nickOk, netRes] = await Promise.all([fromNet ? true : sendNick(checked.nick), netCheck]);
@@ -669,6 +690,8 @@
   // 0.3.4: the check also runs at start (blocked/offline: the line under «Играть»). ?netseq=blocked,ok — one mode per
   // check in turn (start, «Играть» / «Повторить», ...), the last one repeats: another network after «Повторить».
   // &card=play — press «Играть» by itself after start, &card=check — «Проверить связь» (screenshots without clicks).
+  // 0.3.5: ?route=reserve — the main server does not answer, a reserve route does («Подключение: резервный маршрут»);
+  // ?route=none — nothing answers (with ?net=server: the «server_down» card).
   function previewTauri() {
     const q = new URLSearchParams(location.search);
     let netCalls = 0;
@@ -690,10 +713,17 @@
       detect_fivem: { installed: q.get("fivem") !== "0" },
       server_status: q.get("address") === "0"
         ? { online: false, players: 0, maxPlayers: 48, pingMs: null, address: "" }
-        : { online: true, players: 12, maxPlayers: 48, pingMs: 34, address: "203.0.113.10:30120" },
+        : { online: true, players: 12, maxPlayers: 48, pingMs: 34, address: "203.0.113.10:30120", route: null },
       check_update: null
     };
     let previewNick = "";
+    // the route a check chose: a reserve address with ?route=reserve
+    const previewRoute = () => {
+      if (q.get("address") === "0") return;
+      const mode = q.get("route");
+      data.server_status.route = mode === "reserve" ? "reserve" : mode === "none" ? "none" : "main";
+      data.server_status.address = mode === "reserve" ? "198.51.100.20:30120" : "203.0.113.10:30120";
+    };
     const call = async (cmd, args) => {
       if (cmd === "fetch_news") {
         const r = await fetch("../news/news.json");
@@ -715,6 +745,11 @@
         return { action: run === "open" ? "passed" : run === "starting" ? "starting" : "launched" };
       }
       if (cmd === "close_fivem") return q.get("close") === "fail" ? [2, 1] : [3, 0];
+      if (cmd === "choose_route") {
+        await new Promise((r) => setTimeout(r, 300));
+        previewRoute();
+        return { kind: data.server_status.route, address: data.server_status.address };
+      }
       if (cmd === "check_network") {
         await new Promise((r) => setTimeout(r, 900));
         const seq = (q.get("netseq") || q.get("net") || "ok").split(",");
@@ -728,9 +763,15 @@
           svc("services", mode !== "offline", "tls", false),
           svc("list", !cut && mode !== "list" && mode !== "listserver", "tls", false)
         ];
-        const server = !["offline", "server", "listserver"].includes(mode);
-        const verdict = { blocked: "cfx_blocked", list: "cfx_blocked", offline: "offline", server: "server_down", listserver: "server_down" }[mode] || "ok";
-        return { verdict, blocking: cut, services, server, ms: 900 };
+        const routeMode = q.get("route");
+        const server = !["offline", "server", "listserver"].includes(mode) && !routeMode;
+        // without ?route the reserve route answers like the main server (the 0.3.4 previews stay as they were)
+        const reserve = routeMode === "reserve" ? mode !== "offline" : routeMode === "none" ? false : server;
+        let verdict = { blocked: "cfx_blocked", list: "cfx_blocked", offline: "offline", server: "server_down", listserver: "server_down" }[mode] || "ok";
+        if (reserve && (mode === "server" || mode === "listserver")) verdict = mode === "server" ? "ok" : "cfx_blocked";
+        if (!server && !reserve && verdict === "ok") verdict = "server_down";
+        previewRoute();
+        return { verdict, blocking: cut, services, server, reserve, route: data.server_status.route, ms: 900 };
       }
       if (cmd === "pick_fivem") {
         await new Promise((r) => setTimeout(r, 300));

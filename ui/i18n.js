@@ -93,6 +93,12 @@ window.I18N = {
     net_server_ok: "отвечает",
     net_server_fail: "не отвечает",
     net_server_none: "не проверялся",
+    route_main: "Подключение: основной сервер",
+    route_reserve: "Подключение: резервный маршрут",
+    svc_reserve: "Резервный маршрут",
+    net_reserve_ok: "работает",
+    net_reserve_fail: "не отвечает",
+    net_ok_reserve: "Связь в порядке: серверы FiveM отвечают, к серверу COLDZ лаунчер подключится по резервному маршруту.",
     play_anyway: "Всё равно играть"
   },
   en: {
@@ -181,6 +187,12 @@ window.I18N = {
     net_server_ok: "answers",
     net_server_fail: "does not answer",
     net_server_none: "not checked",
+    route_main: "Connection: main server",
+    route_reserve: "Connection: backup route",
+    svc_reserve: "Backup route",
+    net_reserve_ok: "works",
+    net_reserve_fail: "does not answer",
+    net_ok_reserve: "Connection is fine: the FiveM servers answer, and the launcher will connect to COLDZ through the backup route.",
     play_anyway: "Play anyway"
   },
   es: {
@@ -269,6 +281,12 @@ window.I18N = {
     net_server_ok: "responde",
     net_server_fail: "no responde",
     net_server_none: "no comprobado",
+    route_main: "Conexión: servidor principal",
+    route_reserve: "Conexión: ruta de respaldo",
+    svc_reserve: "Ruta de respaldo",
+    net_reserve_ok: "funciona",
+    net_reserve_fail: "no responde",
+    net_ok_reserve: "La conexión está bien: responden los servidores de FiveM y el lanzador se conectará a COLDZ por la ruta de respaldo.",
     play_anyway: "Jugar de todos modos"
   },
   "pt-BR": {
@@ -357,6 +375,12 @@ window.I18N = {
     net_server_ok: "responde",
     net_server_fail: "não responde",
     net_server_none: "não verificado",
+    route_main: "Conexão: servidor principal",
+    route_reserve: "Conexão: rota de reserva",
+    svc_reserve: "Rota de reserva",
+    net_reserve_ok: "funciona",
+    net_reserve_fail: "não responde",
+    net_ok_reserve: "A conexão está boa: os servidores do FiveM respondem, e o launcher vai conectar ao COLDZ pela rota de reserva.",
     play_anyway: "Jogar mesmo assim"
   }
 };

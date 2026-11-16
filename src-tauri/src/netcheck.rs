@@ -16,6 +16,10 @@
 //! 0.3.4: also once at launcher start (quiet: only a problem shows up, as a line under «Играть»); short timeouts
 //! (5 s per address); our server is asked `/info.json`, the first thing FiveM asks when it joins; the texts agreed
 //! with Alexander (ui/i18n.js `net_cfx`, `net_server_down`), buttons «Всё равно играть» / «Повторить».
+//!
+//! 0.3.5: the reserve routes to our server (route.rs) are asked too. The main server is down but a reserve route
+//! answers: the server counts as reachable (no «Сервер COLDZ сейчас недоступен» card), the window shows the reserve
+//! route line.
 
 use serde::Serialize;
 use std::net::SocketAddr;
@@ -97,7 +101,29 @@ pub struct Report {
     pub services: Vec<Probe>,
     /// The COLDZ server answers. None: no address yet, or a cfx.re/join code (its status comes from Cfx.re itself).
     pub server: Option<bool>,
+    /// 0.3.5: some reserve route to the COLDZ server answers (route.rs). None: no reserve routes, or not asked.
+    pub reserve: Option<bool>,
+    /// 0.3.5: the route «Играть» will use: "main" | "reserve" | "none" (nothing answered). None: not asked.
+    pub route: Option<&'static str>,
     pub ms: u32,
+}
+
+/// Our server, asked by lib.rs: the main address and the reserve routes (route.rs).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ServerCheck {
+    pub main: Option<bool>,
+    pub reserve: Option<bool>,
+    pub route: Option<&'static str>,
+}
+
+impl ServerCheck {
+    /// The player can reach the COLDZ server: straight or through a reserve route.
+    pub fn reachable(&self) -> Option<bool> {
+        match (self.main, self.reserve) {
+            (Some(true), _) | (_, Some(true)) => Some(true),
+            (main, _) => main,
+        }
+    }
 }
 
 /// What the window says, from the answers. `control` — another host outside Cfx.re answered (GitHub, where the
@@ -303,12 +329,9 @@ pub async fn answers(url: &str) -> bool {
 
 /// Our server, asked the way FiveM starts every join: `GET http://<address>/info.json` (Cfx.re docs, «Proxy setup»:
 /// the client first fetches `/info.json`, then `POST /client`; FiveM NetLibrary.cpp: «Failed to fetch /info.json to
-/// obtain policy metadata.»). It answers = a JSON object within `SERVER_TIMEOUT`. One request, nothing is sent.
-pub async fn server_answers(url: &str) -> bool {
-    server_answers_within(url, SERVER_TIMEOUT).await
-}
-
-async fn server_answers_within(url: &str, wait: Duration) -> bool {
+/// obtain policy metadata.»). It answers = a JSON object within `wait` (`SERVER_TIMEOUT` for the connection check).
+/// One request, nothing is sent. 0.3.5: route.rs asks the main server and the reserve routes with it.
+pub(crate) async fn server_answers_within(url: &str, wait: Duration) -> bool {
     let fetch = async {
         let resp = client().get(url).send().await.ok()?;
         if !resp.status().is_success() {
@@ -324,7 +347,7 @@ async fn server_answers_within(url: &str, wait: Duration) -> bool {
 /// (5 s per service, plus one quick retry after a fast failure).
 pub async fn run<S, C>(server: S, control: C) -> Report
 where
-    S: std::future::Future<Output = Option<bool>>,
+    S: std::future::Future<Output = ServerCheck>,
     C: std::future::Future<Output = bool>,
 {
     let started = Instant::now();
@@ -340,10 +363,12 @@ where
     );
     let services = vec![update, auth, policy, services, list];
     Report {
-        verdict: verdict(&services, server, control),
+        verdict: verdict(&services, server.reachable(), control),
         blocking: blocking(&services),
         services,
-        server,
+        server: server.main,
+        reserve: server.reserve,
+        route: server.route,
         ms: started.elapsed().as_millis().min(u32::MAX as u128) as u32,
     }
 }
@@ -355,11 +380,24 @@ pub fn log_lines(r: &Report) -> (String, Vec<String>) {
         Some(false) => "не отвечает",
         None => "не проверен",
     };
+    let reserve = match r.reserve {
+        Some(true) => "; резервный маршрут работает",
+        Some(false) => "; резервный маршрут не отвечает",
+        None => "",
+    };
+    let route = match r.route {
+        Some("main") => "; «Играть»: основной сервер",
+        Some("reserve") => "; «Играть»: резервный маршрут",
+        Some(_) => "; «Играть»: ничего не ответило",
+        None => "",
+    };
     let title = format!(
-        "проверка связи: {}{}; сервер COLDZ {}; {} мс",
+        "проверка связи: {}{}; сервер COLDZ {}{}{}; {} мс",
         r.verdict,
         if r.blocking { " (FiveM без этого не запустится или не войдёт на сервер)" } else { "" },
         server,
+        reserve,
+        route,
         r.ms
     );
     let lines = r
@@ -436,6 +474,34 @@ mod tests {
         // a cfx.re/join code: our server is not asked
         assert_eq!(verdict(&list_cut, None, false), "cfx_blocked");
         assert_eq!(verdict(&none, None, true), "cfx_blocked");
+    }
+
+    /// 0.3.5: the main server is down, a reserve route answers: the server is reachable, no «server_down».
+    #[test]
+    fn reserve_route_counts_as_reachable() {
+        let ok = |main, reserve| ServerCheck { main, reserve, route: None }.reachable();
+        assert_eq!(ok(Some(true), None), Some(true));
+        assert_eq!(ok(Some(false), Some(true)), Some(true));
+        assert_eq!(ok(Some(false), Some(false)), Some(false));
+        assert_eq!(ok(Some(false), None), Some(false));
+        assert_eq!(ok(None, None), None);
+        let all_ok = [p("update", true, true), p("auth", true, true), p("list", true, false)];
+        assert_eq!(verdict(&all_ok, ok(Some(false), Some(true)), true), "ok");
+        assert_eq!(verdict(&all_ok, ok(Some(false), Some(false)), true), "server_down");
+
+        let r = Report {
+            verdict: "ok",
+            blocking: false,
+            services: vec![],
+            server: Some(false),
+            reserve: Some(true),
+            route: Some("reserve"),
+            ms: 900,
+        };
+        let (title, _) = log_lines(&r);
+        assert!(title.contains("сервер COLDZ не отвечает; резервный маршрут работает; «Играть»: резервный маршрут"), "{title}");
+        let json = serde_json::to_value(&r).unwrap();
+        assert_eq!((json["reserve"].clone(), json["route"].clone()), (serde_json::json!(true), serde_json::json!("reserve")));
     }
 
     #[test]
@@ -636,7 +702,7 @@ mod tests {
                 let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
                 l.local_addr().unwrap().port()
             };
-            assert!(!server_answers(&url(closed)).await);
+            assert!(!server_answers_within(&url(closed), SERVER_TIMEOUT).await);
         });
     }
 
@@ -647,11 +713,13 @@ mod tests {
             blocking: true,
             services: vec![Probe { problem: Some("slow"), bytes: 16384, ..p("update", false, true) }, p("auth", true, true)],
             server: Some(true),
+            reserve: None,
+            route: None,
             ms: 8100,
         };
         let (title, lines) = log_lines(&r);
         assert!(title.starts_with("проверка связи: cfx_blocked"), "{title}");
-        assert!(title.contains("сервер COLDZ отвечает"), "{title}");
+        assert!(title.contains("сервер COLDZ отвечает; 8100"), "{title}");
         assert_eq!(lines[0], "update update.example: slow, 16384 байт, 1 мс");
         assert_eq!(lines[1], "auth auth.example: ok (HTTP 200), 0 байт, 1 мс");
         let json = serde_json::to_value(&r).unwrap();
@@ -663,7 +731,7 @@ mod tests {
     #[test]
     fn real_cfx_hosts() {
         rt().block_on(async {
-            let report = run(async { None }, answers("https://github.com/")).await;
+            let report = run(async { ServerCheck::default() }, answers("https://github.com/")).await;
             for s in &report.services {
                 eprintln!("{} {} ok={} problem={:?} status={:?} bytes={} ms={}", s.id, s.host, s.ok, s.problem, s.status, s.bytes, s.ms);
             }

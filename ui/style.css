@@ -172,7 +172,7 @@ button, select { font: inherit; color: inherit; }
 /* black cards with a thin line, like the rules and tip on the loading screen */
 .status {
   display: grid;
-  grid-template-columns: 1.4fr 1fr 1fr;
+  grid-template-columns: 1.7fr 1fr 1fr;
   width: 100%;
   max-width: var(--hero-w);
   background: var(--panel);
@@ -184,6 +184,9 @@ button, select { font: inherit; color: inherit; }
 .status__cell { padding: clamp(10px, 1.6vh, 16px) 16px; display: flex; flex-direction: column; justify-content: center; gap: 4px; min-width: 0; }
 .status__cell + .status__cell { border-left: 1px solid var(--line); }
 .status__cell--state { flex-direction: row; align-items: center; gap: 10px; font-family: var(--display); font-weight: 300; font-size: 15px; letter-spacing: .08em; }
+.status__state { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.status__route { font-family: var(--text); font-size: 11px; font-weight: 400; letter-spacing: 0; color: var(--faint); line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status__route[hidden] { display: none; }
 .status__label { font-family: var(--display); font-size: 11px; letter-spacing: .28em; text-transform: uppercase; color: var(--faint); }
 .status__value { font-size: 15px; color: var(--muted); white-space: nowrap; }
 .status__value b { color: var(--ink); font-family: var(--display); font-size: 20px; font-weight: 400; }

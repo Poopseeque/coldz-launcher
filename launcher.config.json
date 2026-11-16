@@ -1,6 +1,7 @@
 {
   "serverName": "COLDZ",
   "serverAddress": "",
+  "relays": ["177.3.198.34:30120", "46.247.40.34:30120"],
   "maxPlayers": 48,
   "ownerEmail": "aaenlly@gmail.com",
   "fivemDownloadUrl": "https://fivem.net/",

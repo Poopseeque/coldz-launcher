@@ -11,11 +11,14 @@
 //!   * sends the player's nickname to our own server before "Play" (nick.rs: `POST /z_menu/nick`),
 //!   * at start, before "Play" and on «Проверить связь» asks the Cfx.re services FiveM needs and our server
 //!     separately (netcheck.rs): a provider that cuts Cfx.re is not the COLDZ server's fault,
+//!   * on «Играть» asks the main server first and, when it does not answer, the reserve routes from news.json
+//!     (route.rs, 0.3.5), and connects through the first that answers,
 //!   * updates itself through the Tauri updater (signed with our own key).
 
 mod fivem;
 mod netcheck;
 mod nick;
+mod route;
 mod running;
 
 use serde::{Deserialize, Serialize};
@@ -57,6 +60,10 @@ struct Config {
     /// `serverAddress` in news.json). A non-empty `serverAddress` in news.json wins.
     #[serde(default)]
     server_address: String,
+    /// 0.3.5: built-in reserve routes to the server (route.rs), `host:port`. A `relays` list in news.json wins
+    /// (an empty list there = no reserve routes).
+    #[serde(default)]
+    relays: Vec<String>,
     max_players: u32,
     owner_email: String,
     fivem_download_url: String,
@@ -140,7 +147,14 @@ fn remote_address() -> &'static RwLock<Option<String>> {
     ADDR.get_or_init(|| RwLock::new(None))
 }
 
+/// Reserve routes from news.json. `None` = the key is missing: use the built-in ones.
+fn remote_relays() -> &'static RwLock<Option<Vec<String>>> {
+    static RELAYS: OnceLock<RwLock<Option<Vec<String>>>> = OnceLock::new();
+    RELAYS.get_or_init(|| RwLock::new(None))
+}
+
 /// Reads `serverAddress` from a news file. Missing, empty or invalid = back to the built-in address.
+/// 0.3.5: also `relays` (a list of `host:port`): missing or not a list = the built-in reserve routes.
 fn apply_feed(v: &serde_json::Value) {
     let addr = v
         .get("serverAddress")
@@ -151,6 +165,91 @@ fn apply_feed(v: &serde_json::Value) {
     if let Ok(mut slot) = remote_address().write() {
         *slot = addr;
     }
+    let relays = v
+        .get("relays")
+        .and_then(|r| r.as_array())
+        .map(|list| list.iter().filter_map(|r| r.as_str()).map(str::to_string).collect::<Vec<_>>());
+    if let Ok(mut slot) = remote_relays().write() {
+        *slot = relays;
+    }
+}
+
+/// Only plain `host:port` addresses (a cfx.re/join code cannot be a reserve route), written as `host:port`, without
+/// repeats and without the main address, at most `route::MAX_RELAYS`.
+fn clean_relays(raw: &[String], primary: Option<&str>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for r in raw.iter().map(|r| r.trim()).filter(|r| valid_address(r)) {
+        let Target::Direct { host, port } = parse_address(r) else { continue };
+        let a = format!("{host}:{port}");
+        if Some(a.as_str()) != primary && !out.contains(&a) {
+            out.push(a);
+        }
+        if out.len() >= route::MAX_RELAYS {
+            break;
+        }
+    }
+    out
+}
+
+/// The main address as `host:port` (or `cfx.re/join/<code>`).
+fn primary_address() -> Option<String> {
+    effective_address().map(|a| display_address(&parse_address(&a)))
+}
+
+/// The reserve routes in use: from news.json, or the built-in ones.
+fn effective_relays() -> Vec<String> {
+    let remote = remote_relays().read().ok().and_then(|g| g.clone());
+    clean_relays(remote.as_deref().unwrap_or(&config().relays), primary_address().as_deref())
+}
+
+/// The route chosen last (route.rs): by «Играть» or by the connection check.
+fn current_route() -> &'static RwLock<Option<route::Route>> {
+    static ROUTE: OnceLock<RwLock<Option<route::Route>>> = OnceLock::new();
+    ROUTE.get_or_init(|| RwLock::new(None))
+}
+
+/// The chosen route, while it is still the main address or one of the reserve routes (news.json may change both).
+fn valid_route() -> Option<route::Route> {
+    let r = current_route().read().ok().and_then(|g| g.clone())?;
+    let primary = primary_address()?;
+    (r.address == primary || effective_relays().contains(&r.address)).then_some(r)
+}
+
+/// Where FiveM, the nick and the status go: the chosen route, or the main address.
+fn route_address() -> Option<String> {
+    valid_route().map(|r| r.address).or_else(effective_address)
+}
+
+/// Remembers the chosen route for this run and (when something answered) in settings.json for the next start.
+fn remember_route(app: &AppHandle, r: &route::Route) {
+    if let Ok(mut slot) = current_route().write() {
+        *slot = Some(r.clone());
+    }
+    if r.kind == "none" || last_route(app) == r.address {
+        return;
+    }
+    let _ = update_settings(app, |s| s.last_route = r.address.clone());
+}
+
+fn last_route(app: &AppHandle) -> String {
+    settings_path(app).map(|p| nick::load(&p).last_route).unwrap_or_default()
+}
+
+/// «Играть», step 0 (0.3.5): the main server answers within ~3 s: straight to it; else the first reserve route that
+/// answers (route.rs). Err("no_address"): no address yet. A cfx.re/join code is not asked: Cfx.re finds the server.
+#[tauri::command]
+async fn choose_route(app: AppHandle) -> Result<route::Route, String> {
+    let Some(address) = effective_address() else {
+        return Err("no_address".into());
+    };
+    let target = parse_address(&address);
+    let primary = display_address(&target);
+    let chosen = match &target {
+        Target::JoinCode(_) => route::Route::main(&primary),
+        Target::Direct { .. } => route::pick(&primary, &effective_relays(), &last_route(&app), route::PROBE_TIMEOUT).await,
+    };
+    remember_route(&app, &chosen);
+    Ok(chosen)
 }
 
 /// The address the launcher really uses, or `None` if it is not set anywhere yet.
@@ -273,11 +372,9 @@ async fn pick_fivem(app: AppHandle, title: String) -> Result<Option<FivemInfo>, 
         }
         return Err("not_fivem".into());
     };
-    if let Some(path) = settings_path(&app) {
-        let mut saved = nick::load(&path);
-        saved.fivem_path = exe.display().to_string();
-        nick::save(&path, &saved).map_err(|_| "save_failed".to_string())?;
-    }
+    update_settings(&app, |s| s.fivem_path = exe.display().to_string())
+        .1
+        .map_err(|_| "save_failed".to_string())?;
     Ok(Some(info_of(find_fivem(&app, "указан вручную", true))))
 }
 
@@ -306,7 +403,8 @@ struct PlayResult {
 /// Errors for the UI: no_address, fivem_missing, fivem_stuck (FiveM processes without a game window), launch_failed.
 #[tauri::command]
 fn play(app: AppHandle) -> Result<PlayResult, String> {
-    let Some(address) = effective_address() else {
+    // 0.3.5: the route chosen right before (choose_route): the main server or a reserve route
+    let Some(address) = route_address() else {
         return Err("no_address".into());
     };
     let url = connect_url(&parse_address(&address));
@@ -381,6 +479,8 @@ struct Status {
     ping_ms: Option<u32>,
     /// Address in use (for the "copy" line and F8 `connect`). Empty = not set yet.
     address: String,
+    /// 0.3.5: the chosen route (route.rs): "main" | "reserve" | "none"; None: not chosen yet.
+    route: Option<&'static str>,
 }
 
 fn http() -> reqwest::Client {
@@ -502,11 +602,19 @@ fn net_log_path(app: &AppHandle) -> Option<PathBuf> {
 /// "Cfx.re is cut" from "no internet".
 #[tauri::command]
 async fn check_network(app: AppHandle) -> netcheck::Report {
+    // 0.3.5: the main server and the reserve routes (route.rs), all at once; the route for «Играть» is chosen too
     let server = async {
         match effective_address().map(|a| parse_address(&a)) {
-            Some(Target::Direct { host, port }) => Some(netcheck::server_answers(&format!("http://{host}:{port}/info.json")).await),
+            Some(Target::Direct { host, port }) => {
+                let primary = format!("{host}:{port}");
+                let relays = effective_relays();
+                let answers = route::probe_all(&primary, &relays, netcheck::SERVER_TIMEOUT).await;
+                let chosen = route::choose(&primary, &relays, &answers, &last_route(&app));
+                remember_route(&app, &chosen);
+                netcheck::ServerCheck { main: Some(answers.main), reserve: answers.reserve(), route: Some(chosen.kind) }
+            }
             // no address yet, or a cfx.re/join code: its status itself comes from Cfx.re
-            _ => None,
+            _ => netcheck::ServerCheck::default(),
         }
     };
     let report = netcheck::run(server, netcheck::answers(&config().news_url)).await;
@@ -519,7 +627,9 @@ async fn check_network(app: AppHandle) -> netcheck::Report {
 
 #[tauri::command]
 async fn server_status() -> Status {
-    let Some(address) = effective_address() else {
+    // 0.3.5: through the chosen route (a reserve route answers the same /dynamic.json), so the status and the ping are
+    // what the player really gets
+    let Some(address) = route_address() else {
         return Status { max_players: config().max_players, ..Default::default() };
     };
     let target = parse_address(&address);
@@ -528,6 +638,7 @@ async fn server_status() -> Status {
         Target::JoinCode(code) => status_join_code(code).await,
     };
     status.address = display_address(&target);
+    status.route = valid_route().map(|r| r.kind);
     status
 }
 
@@ -535,6 +646,18 @@ async fn server_status() -> Status {
 
 fn settings_path(app: &AppHandle) -> Option<PathBuf> {
     app.path().app_config_dir().ok().map(|d| d.join("settings.json"))
+}
+
+/// Changes settings.json: one read-modify-write at a time (0.3.5: the connection check remembers the route while
+/// «Играть» saves the nick). Returns the saved settings and how the write went.
+fn update_settings(app: &AppHandle, change: impl FnOnce(&mut nick::Settings)) -> (nick::Settings, std::io::Result<()>) {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let path = settings_path(app);
+    let mut saved = path.as_deref().map(nick::load).unwrap_or_default();
+    change(&mut saved);
+    let written = path.as_deref().map_or(Ok(()), |p| nick::save(p, &saved));
+    (saved, written)
 }
 
 /// The nick saved last time ("" = FiveM name).
@@ -563,16 +686,14 @@ async fn nick_endpoint(target: &Target) -> Option<String> {
 #[tauri::command]
 async fn send_nick(app: AppHandle, nick: String) -> Result<nick::NickResult, String> {
     let wanted = nick::check(&nick).map_err(str::to_string)?;
-    let path = settings_path(&app);
-    let mut saved = path.as_deref().map(nick::load).unwrap_or_default();
-    if saved.launcher_id.is_empty() {
-        saved.launcher_id = nick::new_launcher_id();
-    }
-    saved.nick = wanted.clone();
-    if let Some(p) = &path {
-        let _ = nick::save(p, &saved);
-    }
-    let Some(address) = effective_address() else {
+    let (saved, _) = update_settings(&app, |s| {
+        if s.launcher_id.is_empty() {
+            s.launcher_id = nick::new_launcher_id();
+        }
+        s.nick = wanted.clone();
+    });
+    // 0.3.5: the same route FiveM will use (choose_route runs before the nick)
+    let Some(address) = route_address() else {
         return Ok(nick::NickResult::unreachable(&wanted));
     };
     let Some(url) = nick_endpoint(&parse_address(&address)).await else {
@@ -737,6 +858,7 @@ pub fn run() {
             get_config,
             detect_fivem,
             pick_fivem,
+            choose_route,
             play,
             close_fivem,
             get_nick,
@@ -825,6 +947,36 @@ mod tests {
         apply_feed(&serde_json::json!({ "items": [] }));
         let built_in = config().server_address.trim();
         assert_eq!(effective_address(), valid_address(built_in).then(|| built_in.to_string()));
+
+        // 0.3.5 reserve routes (same test: these are the same global slots). No `relays` key: the built-in ones.
+        let s = |a: &[&str]| a.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        apply_feed(&serde_json::json!({ "items": [], "serverAddress": "92.118.11.28:28683" }));
+        assert_eq!(effective_relays(), clean_relays(&config().relays, Some("92.118.11.28:28683")));
+        assert_eq!(effective_relays(), s(&["177.3.198.34:30120", "46.247.40.34:30120"]));
+        // news.json changes them without a release
+        apply_feed(&serde_json::json!({ "items": [], "serverAddress": "92.118.11.28:28683", "relays": ["5.6.7.8:30120", "bad host", 7] }));
+        assert_eq!(effective_relays(), s(&["5.6.7.8:30120"]));
+        // an empty list: no reserve routes
+        apply_feed(&serde_json::json!({ "items": [], "serverAddress": "92.118.11.28:28683", "relays": [] }));
+        assert!(effective_relays().is_empty());
+        // a chosen reserve route that news.json no longer lists is dropped: back to the main address
+        *current_route().write().unwrap() = Some(route::Route { kind: "reserve", address: "177.3.198.34:30120".into() });
+        assert_eq!(valid_route(), None);
+        assert_eq!(route_address().as_deref(), Some("92.118.11.28:28683"));
+        apply_feed(&serde_json::json!({ "items": [], "serverAddress": "92.118.11.28:28683" }));
+        assert_eq!(route_address().as_deref(), Some("177.3.198.34:30120"));
+        assert_eq!(valid_route().map(|r| r.kind), Some("reserve"));
+        *current_route().write().unwrap() = None;
+        apply_feed(&serde_json::json!({ "items": [] }));
+    }
+
+    #[test]
+    fn reserve_routes_are_cleaned() {
+        let s = |a: &[&str]| a.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        let raw = s(&[" 177.3.198.34:30120 ", "177.3.198.34:30120", "relay.example", "cfx.re/join/abc123", "92.118.11.28:28683", "x y:1", "1.2.3.4:0"]);
+        assert_eq!(clean_relays(&raw, Some("92.118.11.28:28683")), s(&["177.3.198.34:30120", "relay.example:30120"]));
+        let many: Vec<String> = (1..=20).map(|i| format!("10.0.0.{i}:30120")).collect();
+        assert_eq!(clean_relays(&many, None).len(), route::MAX_RELAYS);
     }
 
     /// A one-shot fake server on 127.0.0.1: reads one HTTP request, answers `status` + `body`, returns the request.
@@ -921,6 +1073,15 @@ mod tests {
         assert!(valid_news(&news));
         if let Some(a) = news.get("serverAddress").and_then(|a| a.as_str()) {
             assert!(a.trim().is_empty() || valid_address(a), "news.json serverAddress: {a}");
+        }
+        // 0.3.5: every reserve route (built-in and in news.json) is a plain host:port the launcher accepts
+        let news_relays: Vec<String> = news
+            .get("relays")
+            .and_then(|r| r.as_array())
+            .map(|l| l.iter().map(|r| r.as_str().unwrap_or("?").to_string()).collect())
+            .unwrap_or_default();
+        for list in [&c.relays, &news_relays] {
+            assert_eq!(&clean_relays(list, None), list, "relays must be plain host:port: {list:?}");
         }
         for r in news.get("rules").and_then(|r| r.as_array()).into_iter().flatten() {
             assert!(r.pointer("/title/ru").and_then(|t| t.as_str()).is_some(), "rule without ru title");

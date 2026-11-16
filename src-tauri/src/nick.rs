@@ -74,6 +74,9 @@ pub struct Settings {
     pub launcher_id: String,
     /// 0.3.2: FiveM.exe chosen by hand ("Choose FiveM.exe manually"), "" — search by itself (fivem.rs).
     pub fivem_path: String,
+    /// 0.3.5: the address of the last route that answered (route.rs): the main server or a reserve route. A reserve
+    /// route that answered last time is preferred among the reserve routes; the main server is always checked first.
+    pub last_route: String,
 }
 
 pub fn load(path: &Path) -> Settings {
@@ -198,13 +201,13 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("coldz-nick-test-{}", std::process::id()));
         let path = dir.join("settings.json");
         assert_eq!(load(&path), Settings::default());
-        let s = Settings { nick: "Снег".into(), launcher_id: new_launcher_id(), fivem_path: r"D:\Игры\FiveM\FiveM.exe".into() };
+        let s = Settings { nick: "Снег".into(), launcher_id: new_launcher_id(), fivem_path: r"D:\Игры\FiveM\FiveM.exe".into(), last_route: "177.3.198.34:30120".into() };
         save(&path, &s).unwrap();
         assert_eq!(load(&path), s);
         assert!(std::fs::read_to_string(&path).unwrap().contains("\"fivemPath\""));
         // settings.json of 0.3.0–0.3.1 (no fivemPath) still loads: the nick and id stay
         std::fs::write(&path, r#"{"nick":"Снег","launcherId":"abc"}"#).unwrap();
-        assert_eq!(load(&path), Settings { nick: "Снег".into(), launcher_id: "abc".into(), fivem_path: String::new() });
+        assert_eq!(load(&path), Settings { nick: "Снег".into(), launcher_id: "abc".into(), ..Default::default() });
         std::fs::write(&path, "{broken").unwrap();
         assert_eq!(load(&path), Settings::default());
         let _ = std::fs::remove_dir_all(&dir);

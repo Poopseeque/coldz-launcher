@@ -41,7 +41,11 @@
       <div class="status" id="status" data-state="checking">
         <div class="status__cell status__cell--state">
           <span class="dot"></span>
-          <span id="status-text" data-i18n="checking"></span>
+          <span class="status__state">
+            <span id="status-text" data-i18n="checking"></span>
+            <!-- 0.3.5: маршрут к серверу (src-tauri/src/route.rs): «Подключение: основной сервер» / «резервный маршрут» -->
+            <small class="status__route" id="route-text" hidden></small>
+          </span>
         </div>
         <div class="status__cell">
           <span class="status__label" data-i18n="players"></span>
