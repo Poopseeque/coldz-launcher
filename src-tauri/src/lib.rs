@@ -328,11 +328,20 @@ fn play(app: AppHandle) -> Result<PlayResult, String> {
     // ("This application should be launched directly from the shell or a web browser").
     // So hand the fivem:// link to explorer.exe: the shell then starts FiveM itself (or, if FiveM is open,
     // FiveM passes the link to the running game).
+    // 16.11.2026: explorer opens the link with the registered fivem:// handler. Missing or pointing to a FiveM.exe
+    // that is gone, Windows shows «explorer.exe — Приложение не найдено» and FiveM does not start: point the handler
+    // at the FiveM.exe found above first (fivem.rs ensure_link_handler); could not — skip explorer, start FiveM.exe.
     #[cfg(windows)]
     {
+        let (handler_ok, lines) = fivem::ensure_link_handler(&exe);
+        if !lines.is_empty() {
+            if let Some(log) = search_log_path(&app) {
+                fivem::write_log(&log, &format!("«Играть»: обработчик ссылки fivem:// для {}", exe.display()), &lines);
+            }
+        }
         let windir = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".into());
         let explorer = std::path::Path::new(&windir).join("explorer.exe");
-        if std::process::Command::new(&explorer).arg(&url).spawn().is_ok() {
+        if handler_ok && std::process::Command::new(&explorer).arg(&url).spawn().is_ok() {
             return Ok(PlayResult { action });
         }
     }

@@ -12,7 +12,9 @@
 //! (and anything inside it) with FiveM.exe next to it (5). Every step goes to the trace: the launcher writes it to
 //! `fivem-search.log` next to settings.json, so we can see where it looked on a player's PC.
 //!
-//! The launcher never changes FiveM files: it only reads the registry, folders and shortcuts.
+//! The launcher never changes FiveM files: it only reads the registry, folders and shortcuts. One exception (16.11.2026,
+//! «explorer.exe — Приложение не найдено»): a missing or broken fivem:// link handler is pointed at the FiveM.exe found
+//! here, for the current user only (`ensure_link_handler`, below).
 
 use std::path::{Path, PathBuf};
 
@@ -589,6 +591,104 @@ pub fn pick_file(_title: &str, _owner: isize) -> Option<PathBuf> {
     None
 }
 
+// ---------------------------------------------------------------- fivem:// link handler
+
+// 16.11.2026: a player got the Windows box «explorer.exe — Приложение не найдено» on «Играть». «Играть» hands
+// `fivem://connect/…` to explorer.exe (FiveM must have the shell as its parent), and explorer runs the registered
+// fivem:// handler. That handler pointed to a FiveM.exe that is gone (FiveM moved or reinstalled into another folder,
+// a "cleaner", a copied FiveM folder) while the launcher had found the real FiveM.exe another way (manual choice,
+// shortcut, folder). With no handler at all Windows offers to look for an app in the Store instead.
+// Fix: before explorer, check the handler; missing or broken — point it at the FiveM.exe the launcher found, for this
+// user only (HKCU\Software\Classes, no admin rights), with the same command FiveM registers itself.
+
+/// The fivem:// handler as Windows would run it.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LinkHandler {
+    /// No open command for fivem:// links.
+    Missing,
+    /// A command whose program does not exist (what gives «Приложение не найдено»).
+    Broken(String),
+    /// A command that starts an existing program.
+    Works(PathBuf),
+}
+
+/// Classifies the open command of the fivem:// class (`None` — no command).
+pub fn link_handler(cmd: Option<&str>) -> LinkHandler {
+    let Some(cmd) = cmd.map(str::trim).filter(|c| !c.is_empty()) else {
+        return LinkHandler::Missing;
+    };
+    match path_from_command(cmd) {
+        Some(p) if p.is_file() => LinkHandler::Works(p),
+        _ => LinkHandler::Broken(cmd.to_string()),
+    }
+}
+
+/// The open command the launcher writes for fivem:// links: `"<FiveM.exe>" "%1"`.
+pub fn handler_command(exe: &Path) -> String {
+    format!("\"{}\" \"%1\"", exe.display())
+}
+
+/// The class Windows opens fivem:// links with — the user's choice (UserChoice ProgId) or `fivem` — and its open
+/// command as Windows sees it (HKCR: the user's HKCU\Software\Classes over HKLM).
+#[cfg(windows)]
+pub fn read_link_handler() -> (String, Option<String>) {
+    use winreg::enums::{HKEY_CLASSES_ROOT, HKEY_CURRENT_USER};
+    use winreg::RegKey;
+    let choice = RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey(r"Software\Microsoft\Windows\Shell\Associations\UrlAssociations\fivem\UserChoice")
+        .and_then(|k| k.get_value::<String, _>("ProgId"))
+        .ok()
+        .filter(|s| !s.trim().is_empty());
+    let class = choice.unwrap_or_else(|| "fivem".to_string());
+    let cmd = RegKey::predef(HKEY_CLASSES_ROOT)
+        .open_subkey(format!(r"{class}\shell\open\command"))
+        .and_then(|k| k.get_value::<String, _>(""))
+        .ok();
+    (class, cmd)
+}
+
+/// Points the open command of `class` at this FiveM.exe for the current user (HKCU\Software\Classes; for the `fivem`
+/// class also marks it as a link protocol), then tells the shell that associations changed.
+#[cfg(windows)]
+pub fn write_link_handler(class: &str, exe: &Path) -> std::io::Result<()> {
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+    let (key, _) = RegKey::predef(HKEY_CURRENT_USER).create_subkey(format!(r"Software\Classes\{class}"))?;
+    if class.eq_ignore_ascii_case("fivem") {
+        key.set_value("", &"URL:fivem")?;
+        key.set_value("URL Protocol", &"")?;
+    }
+    let (cmd, _) = key.create_subkey(r"shell\open\command")?;
+    cmd.set_value("", &handler_command(exe))?;
+    unsafe {
+        use windows_sys::Win32::UI::Shell::{SHChangeNotify, SHCNE_ASSOCCHANGED, SHCNF_IDLIST};
+        SHChangeNotify(SHCNE_ASSOCCHANGED as i32, SHCNF_IDLIST, std::ptr::null(), std::ptr::null());
+    }
+    Ok(())
+}
+
+/// Makes sure a fivem:// link opened by explorer.exe starts FiveM: a working handler stays as it is; a missing or
+/// broken one is pointed at `exe`. Returns whether explorer can be used and lines for fivem-search.log (empty when
+/// the handler already worked).
+#[cfg(windows)]
+pub fn ensure_link_handler(exe: &Path) -> (bool, Vec<String>) {
+    let (class, cmd) = read_link_handler();
+    let was = match link_handler(cmd.as_deref()) {
+        LinkHandler::Works(_) => return (true, Vec::new()),
+        LinkHandler::Missing => format!("ссылка fivem:// ({class}): обработчика нет"),
+        LinkHandler::Broken(c) => format!("ссылка fivem:// ({class}): обработчик {c} -> файла нет"),
+    };
+    let mut lines = vec![was];
+    if let Err(e) = write_link_handler(&class, exe) {
+        lines.push(format!("не удалось записать HKCU\\Software\\Classes\\{class}: {e}"));
+        return (false, lines);
+    }
+    let (_, now) = read_link_handler();
+    let ok = matches!(link_handler(now.as_deref()), LinkHandler::Works(_));
+    lines.push(format!("записан HKCU\\Software\\Classes\\{class}: {} -> {}", handler_command(exe), if ok { "работает" } else { "всё ещё не работает" }));
+    (ok, lines)
+}
+
 // ---------------------------------------------------------------- log
 
 /// Date and time (UTC) for the log, without extra crates: "2026-11-14 11:05:09 UTC".
@@ -647,6 +747,36 @@ mod tests {
     fn touch(p: &Path) {
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
         std::fs::write(p, b"MZ").unwrap();
+    }
+
+    // 16.11.2026: «explorer.exe — Приложение не найдено» — the fivem:// handler led to a FiveM.exe that is gone
+    #[test]
+    fn tells_a_working_link_handler_from_a_broken_one() {
+        let d = tmp("handler");
+        let exe = d.join("FiveM").join("FiveM.exe");
+        touch(&exe);
+        assert_eq!(link_handler(None), LinkHandler::Missing);
+        assert_eq!(link_handler(Some("  ")), LinkHandler::Missing);
+        // what FiveM and the launcher write; it reads back to the same exe
+        let cmd = handler_command(&exe);
+        assert_eq!(cmd, format!("\"{}\" \"%1\"", exe.display()));
+        assert_eq!(path_from_command(&cmd), Some(exe.clone()));
+        assert_eq!(link_handler(Some(&cmd)), LinkHandler::Works(exe.clone()));
+        // FiveM moved or reinstalled elsewhere: the old command leads nowhere
+        let gone = handler_command(&d.join("Old").join("FiveM.exe"));
+        assert_eq!(link_handler(Some(&gone)), LinkHandler::Broken(gone.clone()));
+        assert!(matches!(link_handler(Some(r"Z:\nowhere at all\FiveM.exe %1")), LinkHandler::Broken(_)));
+        // the handler points at a folder, not a program
+        assert!(matches!(link_handler(Some(&format!("\"{}\" \"%1\"", d.display()))), LinkHandler::Broken(_)));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn reads_the_real_link_handler_without_errors() {
+        let (class, cmd) = read_link_handler();
+        assert!(!class.trim().is_empty());
+        let _ = link_handler(cmd.as_deref());
     }
 
     #[test]
