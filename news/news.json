@@ -133,6 +133,23 @@
       "url": "https://vk.ru/wall-242530578_119"
     },
     {
+      "id": "launcher-0.3.5",
+      "date": "2026-11-16",
+      "pinned": false,
+      "title": {
+        "ru": "Лаунчер 0.3.5",
+        "en": "Launcher 0.3.5",
+        "es": "Lanzador 0.3.5",
+        "pt-BR": "Launcher 0.3.5"
+      },
+      "body": {
+        "ru": "Лаунчер сам выбирает рабочий маршрут к серверу, если основной недоступен. Под «Сервер онлайн» видно, как идёт подключение: «основной сервер» или «резервный маршрут». Настраивать ничего не нужно, лаунчер обновится сам.",
+        "en": "The launcher picks a working route to the server by itself if the main one is unavailable. Under \"Server online\" you can see how you connect: \"main server\" or \"backup route\". Nothing to set up, the launcher updates itself.",
+        "es": "El lanzador elige por sí mismo una ruta que funcione hasta el servidor si la principal no está disponible. Debajo de «Servidor en línea» verás cómo te conectas: «servidor principal» o «ruta de respaldo». No hay que configurar nada, el lanzador se actualiza solo.",
+        "pt-BR": "O launcher escolhe sozinho uma rota que funcione até o servidor se a principal estiver indisponível. Abaixo de «Servidor online» você vê como está conectando: «servidor principal» ou «rota de reserva». Não precisa configurar nada, o launcher se atualiza sozinho."
+      }
+    },
+    {
       "id": "launcher-0.3.4",
       "date": "2026-11-15",
       "pinned": false,
