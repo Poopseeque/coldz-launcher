@@ -144,7 +144,18 @@ window.I18N = {
     hint_slow_disk: "GTA 5 стоит на медленном диске (HDD или флешка). Если игра вылетает при загрузке, перенесите её на SSD.",
     hint_crash: "FiveM недавно вылетал. Если это повторится, соберите отчёт для поддержки.",
     hint_report: "Отчёт для поддержки",
-    hint_hide: "Скрыть"
+    hint_hide: "Скрыть",
+    restart_in: "Перезапуск через {n} мин",
+    restart_now: "Перезапуск меньше чем через минуту",
+    restart_title: "Перезапуск сервера",
+    restart_text: "Сервер перезапустится через {n} мин. Если войти сейчас, скоро вас отключит, а потом сервер будет недоступен несколько минут.",
+    restart_text_now: "Сервер перезапустится меньше чем через минуту. Если войти сейчас, вас сразу отключит, а потом сервер будет недоступен несколько минут.",
+    online_day: "Онлайн за сутки: до {n} игроков",
+    net_ms: "{n} мс",
+    svc_reserve_n: "Резервный маршрут {n}",
+    unit_b: "Б",
+    unit_kb: "КБ",
+    unit_mb: "МБ"
   },
   en: {
     lead: "Winter never ends. Find warmth, food and ammo before the dead or the living find you.",
@@ -280,7 +291,18 @@ window.I18N = {
     hint_slow_disk: "GTA 5 is on a slow drive (HDD or USB stick). If the game crashes while loading, move it to an SSD.",
     hint_crash: "FiveM crashed recently. If it happens again, make a report for support.",
     hint_report: "Report for support",
-    hint_hide: "Hide"
+    hint_hide: "Hide",
+    restart_in: "Restart in {n} min",
+    restart_now: "Restart in less than a minute",
+    restart_title: "Server restart",
+    restart_text: "The server restarts in {n} min. If you join now, you will be disconnected soon, and then the server will be down for a few minutes.",
+    restart_text_now: "The server restarts in less than a minute. If you join now, you will be disconnected right away, and then the server will be down for a few minutes.",
+    online_day: "Online in the last day: up to {n} players",
+    net_ms: "{n} ms",
+    svc_reserve_n: "Backup route {n}",
+    unit_b: "B",
+    unit_kb: "KB",
+    unit_mb: "MB"
   },
   es: {
     lead: "El invierno no termina. Busca calor, comida y munición antes de que te encuentren los muertos o los vivos.",
@@ -416,7 +438,18 @@ window.I18N = {
     hint_slow_disk: "GTA 5 está en un disco lento (HDD o memoria USB). Si el juego se cierra al cargar, muévelo a un SSD.",
     hint_crash: "FiveM se cerró hace poco. Si vuelve a pasar, crea un informe para soporte.",
     hint_report: "Informe para soporte",
-    hint_hide: "Ocultar"
+    hint_hide: "Ocultar",
+    restart_in: "Reinicio en {n} min",
+    restart_now: "Reinicio en menos de un minuto",
+    restart_title: "Reinicio del servidor",
+    restart_text: "El servidor se reinicia en {n} min. Si entras ahora, te desconectará pronto y después el servidor no estará disponible unos minutos.",
+    restart_text_now: "El servidor se reinicia en menos de un minuto. Si entras ahora, te desconectará enseguida y después el servidor no estará disponible unos minutos.",
+    online_day: "En línea en el último día: hasta {n} jugadores",
+    net_ms: "{n} ms",
+    svc_reserve_n: "Ruta de reserva {n}",
+    unit_b: "B",
+    unit_kb: "KB",
+    unit_mb: "MB"
   },
   "pt-BR": {
     lead: "O inverno não acaba. Encontre calor, comida e munição antes que os mortos ou os vivos encontrem você.",
@@ -552,6 +585,17 @@ window.I18N = {
     hint_slow_disk: "O GTA 5 está num disco lento (HDD ou pendrive). Se o jogo fechar ao carregar, mova-o para um SSD.",
     hint_crash: "O FiveM fechou com erro há pouco. Se acontecer de novo, crie um relatório para o suporte.",
     hint_report: "Relatório para o suporte",
-    hint_hide: "Ocultar"
+    hint_hide: "Ocultar",
+    restart_in: "Reinício em {n} min",
+    restart_now: "Reinício em menos de um minuto",
+    restart_title: "Reinício do servidor",
+    restart_text: "O servidor reinicia em {n} min. Se entrar agora, você será desconectado logo, e depois o servidor ficará fora do ar por alguns minutos.",
+    restart_text_now: "O servidor reinicia em menos de um minuto. Se entrar agora, você será desconectado na hora, e depois o servidor ficará fora do ar por alguns minutos.",
+    online_day: "Online no último dia: até {n} jogadores",
+    net_ms: "{n} ms",
+    svc_reserve_n: "Rota reserva {n}",
+    unit_b: "B",
+    unit_kb: "KB",
+    unit_mb: "MB"
   }
 };

@@ -49,9 +49,16 @@
             <span id="status-text" data-i18n="checking"></span>
             <!-- 0.3.5: маршрут к серверу (src-tauri/src/route.rs): «Подключение: основной сервер» / «резервный маршрут» -->
             <small class="status__route" id="route-text" hidden></small>
+            <!-- 0.5.0: «Перезапуск через N мин» (сервер: z_menu /z_menu/online, vars.coldz_restart_at) -->
+            <small class="status__route status__restart" id="restart-text" hidden></small>
           </span>
         </div>
-        <div class="status__cell">
+        <div class="status__cell status__cell--players" id="players-cell">
+          <!-- 0.5.0: онлайн за сутки по 5 минут, тонкой линией под числом -->
+          <svg class="spark" id="spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true" hidden>
+            <path class="spark__area" id="spark-area" d="" />
+            <path class="spark__line" id="spark-line" d="" />
+          </svg>
           <span class="status__label" data-i18n="players"></span>
           <span class="status__value"><b id="players">—</b> / <span id="max-players">48</span></span>
         </div>
@@ -149,6 +156,18 @@
         <button class="btn btn--accent" id="btn-net-play" hidden></button>
         <button class="btn" id="btn-net-recheck" data-i18n="net_retry"></button>
         <button class="btn" id="btn-net-close" data-i18n="close"></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 0.5.0: «Играть» за 2 минуты до объявленного перезапуска сервера -->
+  <div class="dialog" id="restart" hidden>
+    <div class="dialog__card" role="dialog" aria-modal="true" aria-labelledby="restart-title">
+      <h2 class="dialog__title" id="restart-title" data-i18n="restart_title"></h2>
+      <p class="dialog__text" id="restart-card-text"></p>
+      <div class="dialog__actions">
+        <button class="btn btn--accent" id="btn-restart-play" data-i18n="play_anyway"></button>
+        <button class="btn" id="btn-restart-close" data-i18n="close"></button>
       </div>
     </div>
   </div>

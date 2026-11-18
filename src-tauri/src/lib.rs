@@ -668,13 +668,94 @@ async fn check_network(app: AppHandle) -> netcheck::Report {
         let futs: Vec<_> = urls.iter().map(|u| netcheck::answers(u)).collect();
         join_all(futs).await.into_iter().any(|a| a)
     };
-    let (mut report, signin) = tokio::join!(netcheck::run(server, control), signin_check());
+    let (mut report, signin, pings) = tokio::join!(netcheck::run(server, control), signin_check(), route_pings());
     report.signin = signin;
+    report.pings = pings;
     if let Some(log) = net_log_path(&app) {
         let (title, lines) = netcheck::log_lines(&report);
         fivem::write_log(&log, &title, &lines);
     }
     report
+}
+
+/// 0.5.0: the ping to the main server and every reserve route at once (for the connection card and the log).
+async fn route_pings() -> Vec<netcheck::RoutePing> {
+    let Some(Target::Direct { host, port }) = effective_address().map(|a| parse_address(&a)) else {
+        return Vec::new();
+    };
+    let mut targets: Vec<(&'static str, usize, String, String, u16)> = vec![("main", 0, format!("{host}:{port}"), host, port)];
+    for (i, r) in effective_relays().iter().enumerate() {
+        if let Target::Direct { host, port } = parse_address(r) {
+            targets.push(("reserve", i + 1, r.clone(), host, port));
+        }
+    }
+    let futs: Vec<_> = targets.iter().map(|t| tcp_ping(&t.3, t.4)).collect();
+    let ms = join_all(futs).await;
+    targets
+        .into_iter()
+        .zip(ms)
+        .map(|((kind, index, address, _, _), ms)| netcheck::RoutePing { kind, index, address, ms })
+        .collect()
+}
+
+// ---------------------------------------------------------------- restart notice and online graph (0.5.0)
+
+#[derive(Serialize, Default, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct ServerInfo {
+    /// Seconds until the announced restart (server clock, so a wrong PC clock does not matter). None: none announced.
+    restart_in: Option<i64>,
+    /// Online over the last day: (unix seconds of the 5-minute slot, players), oldest first.
+    points: Vec<(u64, u32)>,
+    step: u64,
+    max: u32,
+}
+
+/// `/z_menu/online` (winter-server z_menu server/online.lua): { now, step, max, restartAt, points }.
+fn parse_online(v: &serde_json::Value) -> Option<ServerInfo> {
+    if v.get("ok").and_then(|o| o.as_bool()) != Some(true) {
+        return None;
+    }
+    let now = v.get("now").and_then(|n| n.as_i64())?;
+    let restart = v.get("restartAt").and_then(|r| r.as_i64()).unwrap_or(0);
+    let points = v
+        .get("points")
+        .and_then(|p| p.as_array())
+        .map(|list| {
+            list.iter()
+                .filter_map(|p| Some((p.get(0)?.as_u64()?, p.get(1)?.as_u64()?.min(1000) as u32)))
+                .take(400)
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(ServerInfo {
+        restart_in: (restart > now).then_some(restart - now),
+        points,
+        step: v.get("step").and_then(|s| s.as_u64()).unwrap_or(300),
+        max: v.get("max").and_then(as_u32).unwrap_or(config().max_players),
+    })
+}
+
+/// An older server without `/z_menu/online`: `vars.coldz_restart_at` of `/info.json` and the PC clock.
+fn parse_info_restart(v: &serde_json::Value, local_now: i64) -> Option<i64> {
+    let at = v.pointer("/vars/coldz_restart_at").and_then(|a| a.as_str().and_then(|s| s.trim().parse::<i64>().ok()).or(a.as_i64()))?;
+    (at > local_now).then_some(at - local_now)
+}
+
+/// The restart notice and the online graph, through the chosen route (the window asks once a minute).
+#[tauri::command]
+async fn server_info() -> ServerInfo {
+    let Some(Target::Direct { host, port }) = route_address().map(|a| parse_address(&a)) else {
+        return ServerInfo::default();
+    };
+    let base = format!("http://{host}:{port}");
+    if let Some(info) = get_json(&format!("{base}/z_menu/online")).await.as_ref().and_then(parse_online) {
+        return info;
+    }
+    let restart_in = get_json(&format!("{base}/info.json"))
+        .await
+        .and_then(|v| parse_info_restart(&v, netcheck::unix_now() as i64));
+    ServerInfo { restart_in, step: 300, max: config().max_players, ..Default::default() }
 }
 
 // ---------------------------------------------------------------- sign-in route (0.4.0, signin.rs)
@@ -1452,6 +1533,7 @@ pub fn run() {
             signin_enable,
             signin_disable,
             crash_hint,
+            server_info,
             support_preview,
             support_create
         ])
@@ -1716,6 +1798,28 @@ mod tests {
             let unsigned = site(a, "bm90IGEgc2lnbmF0dXJl".into(), 10).await;
             assert!(first_signed(vec![unsigned, dead], config().news_pubkey.clone()).await.is_none());
         });
+    }
+
+    /// 0.5.0: the server's answers about the restart and the online graph.
+    #[test]
+    fn restart_and_online_from_the_server() {
+        let v = serde_json::json!({ "ok": true, "now": 1_000_000, "step": 300, "max": 48, "restartAt": 1_000_420,
+            "points": [[999_600, 5], [999_900, 7], ["x", 1], [999_950]] });
+        let i = parse_online(&v).unwrap();
+        assert_eq!(i.restart_in, Some(420));
+        assert_eq!(i.points, vec![(999_600, 5), (999_900, 7)]);
+        assert_eq!((i.step, i.max), (300, 48));
+        // no restart, or one in the past (the server clock decides, not the PC)
+        assert_eq!(parse_online(&serde_json::json!({ "ok": true, "now": 10, "restartAt": 0, "points": [] })).unwrap().restart_in, None);
+        assert_eq!(parse_online(&serde_json::json!({ "ok": true, "now": 10, "restartAt": 5 })).unwrap().restart_in, None);
+        assert_eq!(parse_online(&serde_json::json!({ "ok": false })), None);
+        // FXServer 404 body and the like
+        assert_eq!(parse_online(&serde_json::json!({ "error": "not found" })), None);
+        // the older server: /info.json vars (FXServer gives every var as a string)
+        let info = serde_json::json!({ "vars": { "coldz_restart_at": "1000120", "sv_maxClients": "48" } });
+        assert_eq!(parse_info_restart(&info, 1_000_000), Some(120));
+        assert_eq!(parse_info_restart(&serde_json::json!({ "vars": { "coldz_restart_at": "0" } }), 1_000_000), None);
+        assert_eq!(parse_info_restart(&serde_json::json!({ "vars": {} }), 1_000_000), None);
     }
 
     #[test]

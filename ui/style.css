@@ -347,6 +347,14 @@ button, select { font: inherit; color: inherit; }
 .netlist li[data-state="fail"] .netlist__state { color: #ffb4b8; }
 .netlist .netlist__server { margin-top: 4px; padding-top: 6px; border-top: 1px dashed rgba(255, 255, 255, .08); }
 
+/* 0.5.0: the restart line and the online graph of the last day */
+.status__restart { color: #ffe3a3; }
+.status__cell--players { position: relative; overflow: hidden; }
+.status__cell--players > :not(.spark) { position: relative; z-index: 1; }
+.spark { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; height: 46%; pointer-events: none; }
+.spark__area { fill: rgba(224, 38, 46, .16); stroke: none; }
+.spark__line { fill: none; stroke: rgba(224, 38, 46, .75); stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+
 /* 0.5.0: the crash hint (support.rs): an amber line instead of «FiveM установлен» */
 .fivem[data-state="hint"] .fivem__text { color: #ffe3a3; }
 .fivem[data-state="hint"] .fivem__text::before { content: "! "; color: var(--amber); font-weight: 700; }

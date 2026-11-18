@@ -107,7 +107,20 @@ pub struct Report {
     pub route: Option<&'static str>,
     /// 0.4.0: the FiveM sign-in hosts (signin.rs) and the reserve route for them. None: not asked (no groups set up).
     pub signin: Option<SigninReport>,
+    /// 0.5.0: the ping (TCP connect, best of 3) to the main server and to every reserve route, for the card.
+    pub pings: Vec<RoutePing>,
     pub ms: u32,
+}
+
+/// 0.5.0: one line of the ping list: "main" or "reserve" (number = place in the reserve list, from 1).
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RoutePing {
+    pub kind: &'static str,
+    pub index: usize,
+    pub address: String,
+    /// None: no answer within 2 s.
+    pub ms: Option<u32>,
 }
 
 /// 0.4.0: one group of sign-in hosts, asked straight (its first `check` address).
@@ -450,6 +463,7 @@ where
         reserve: server.reserve,
         route: server.route,
         signin: None,
+        pings: Vec::new(),
         ms: started.elapsed().as_millis().min(u32::MAX as u128) as u32,
     }
 }
@@ -481,7 +495,20 @@ pub fn log_lines(r: &Report) -> (String, Vec<String>) {
         route,
         r.ms
     );
-    let mut lines: Vec<String> = r
+    let mut lines: Vec<String> = Vec::new();
+    // 0.5.0: the ping to the main server and every reserve route
+    if !r.pings.is_empty() {
+        let parts: Vec<String> = r
+            .pings
+            .iter()
+            .map(|p| {
+                let name = if p.kind == "main" { "основной".to_string() } else { format!("резерв №{}", p.index) };
+                format!("{name} {} {}", p.address, p.ms.map_or("нет ответа".to_string(), |m| format!("{m} мс")))
+            })
+            .collect();
+        lines.push(format!("пинг: {}", parts.join(", ")));
+    }
+    lines.extend(r
         .services
         .iter()
         .map(|p| {
@@ -494,8 +521,7 @@ pub fn log_lines(r: &Report) -> (String, Vec<String>) {
                 p.bytes,
                 p.ms
             )
-        })
-        .collect();
+        }));
     if let Some(s) = &r.signin {
         for g in &s.groups {
             lines.push(format!(
@@ -614,6 +640,7 @@ mod tests {
             reserve: Some(true),
             route: Some("reserve"),
             signin: None,
+            pings: Vec::new(),
             ms: 900,
         };
         let (title, _) = log_lines(&r);
@@ -834,6 +861,7 @@ mod tests {
             reserve: None,
             route: None,
             signin: None,
+            pings: Vec::new(),
             ms: 8100,
         };
         let (title, lines) = log_lines(&r);
@@ -873,12 +901,17 @@ mod tests {
                 active: true,
                 blocked: false,
             }),
+            pings: vec![
+                RoutePing { kind: "main", index: 0, address: "92.118.11.28:28683".into(), ms: Some(34) },
+                RoutePing { kind: "reserve", index: 1, address: "177.3.198.34:30120".into(), ms: None },
+            ],
             ms: 1,
         };
         let (_, lines) = log_lines(&r);
         assert!(lines.contains(&"резервный маршрут входа, релей №1 10.0.0.1:8443: timeout (HTTP 403), 18000 байт, 701 мс".to_string()), "{lines:?}");
         assert!(lines.contains(&"резервный маршрут входа, релей №2 10.0.0.2:8443: ok (HTTP 403), 99000 байт, 702 мс; выбран".to_string()), "{lines:?}");
         assert!(lines.iter().any(|l| l.starts_with("работа маршрута через 10.0.0.2:8443")), "{lines:?}");
+        assert_eq!(lines[0], "пинг: основной 92.118.11.28:28683 34 мс, резерв №1 177.3.198.34:30120 нет ответа");
     }
 
     /// The real Cfx.re hosts from this PC (prints the report; offline machine: nothing to check).
