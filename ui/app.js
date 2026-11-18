@@ -276,8 +276,20 @@
   // FiveM will not start, will not get into COLDZ, or COLDZ does not answer: «Играть» shows the card first
   // («Всё равно играть» / «Повторить»). A cut server list alone does not stop it (fivem://connect does not need it).
   function netStops(r) {
-    return !!r && (r.verdict === "offline" || r.verdict === "server_down" || (r.verdict === "cfx_blocked" && !!r.blocking));
+    return !!r && (r.verdict === "offline" || r.verdict === "server_down" || (r.verdict === "cfx_blocked" && !!r.blocking) || signinBlocked(r));
   }
+
+  // 0.4.0: the FiveM sign-in (Rockstar) does not answer and the backup route is off: FiveM will not start
+  // (src-tauri/src/signin.rs). With the route on, the same hosts are asked through it.
+  function signinBlocked(r) {
+    return !!(r && r.signin && r.signin.blocked);
+  }
+  // the route is on, and the sign-in hosts answer through it
+  function signinWorks(r) {
+    return !!(r && r.signin && r.signin.active && r.signin.groups.every((g) => g.ok));
+  }
+  // what the player is doing with the route right now: null | "on" | "off"; the last error key, if any
+  const signinUi = { busy: null, error: null };
 
   // The line under «Играть» (0.3.4): only what stops FiveM itself. The COLDZ server being down is already in the
   // status above and comes up in the card on «Играть».
@@ -285,7 +297,30 @@
     if (!r) return null;
     if (r.verdict === "offline") return "net_offline";
     if (r.verdict === "cfx_blocked" && r.blocking) return "net_cfx";
+    if (signinBlocked(r)) return "net_signin_short";
     return null;
+  }
+
+  // 0.4.0: «Включить / Выключить резервный маршрут входа» (src-tauri/src/signin.rs): the Windows prompt comes up,
+  // the window waits; then the check runs again, so the list shows the sign-in through the route.
+  async function toggleSignin() {
+    if (signinUi.busy || net.running) return;
+    const r = net.report;
+    const on = !(r && r.signin && r.signin.active);
+    signinUi.busy = on ? "on" : "off";
+    signinUi.error = null;
+    renderNet();
+    try {
+      await invoke(on ? "signin_enable" : "signin_disable");
+    } catch (e) {
+      const code = String(e || "");
+      signinUi.error = on
+        ? ({ cancelled: "signin_cancelled", port_busy: "signin_port_busy", no_route: "signin_no_route", no_setup: "signin_no_route" }[code] || "signin_failed")
+        : (code === "cancelled" ? "signin_off_cancelled" : "signin_failed");
+    }
+    signinUi.busy = null;
+    renderNet();
+    runNetCheck();
   }
 
   function runNetCheck() {
@@ -341,6 +376,20 @@
       if (running) line(t("svc_reserve"), "wait", "");
       else line(t("svc_reserve"), r.reserve ? "ok" : "fail", t(r.reserve ? "net_reserve_ok" : "net_reserve_fail"));
     }
+    // 0.4.0: the FiveM sign-in (Rockstar) and the backup route for it (src-tauri/src/signin.rs); no lines when
+    // news.json has no sign-in setup
+    const si = r && r.signin;
+    if (si) {
+      for (const g of si.groups) {
+        if (running) line(t("svc_signin"), "wait", "", "netlist__server");
+        else line(t("svc_signin"), g.ok ? "ok" : "fail", t(g.ok ? (si.active ? "net_route_on" : "net_st_ok") : "net_st_fail"), "netlist__server");
+      }
+      if (si.tunnel) {
+        if (running) line(t("svc_signin_route"), "wait", "");
+        else if (si.active) line(t("svc_signin_route"), "ok", t("net_route_on"));
+        else line(t("svc_signin_route"), si.tunnel.ok ? "ok" : "fail", t(si.tunnel.ok ? "net_route_ok" : "net_route_fail"));
+      }
+    }
 
     let text;
     let hint = "";
@@ -358,16 +407,31 @@
       hint = t("net_advice");
     } else if (r.verdict === "cfx_blocked" && r.blocking) {
       text = t("net_cfx");               // the text agreed with Alexander: it already says what to do
+    } else if (signinBlocked(r)) {
+      // 0.4.0: the sign-in is cut; the route can be turned on when a relay answers
+      text = t(r.signin.tunnel && r.signin.tunnel.ok ? "net_signin" : "net_signin_noroute");
+    } else if (r.signin && r.signin.active) {
+      text = t(signinWorks(r) ? "net_signin_active" : "net_signin_active_bad");
+      state = signinWorks(r) ? "ok" : "bad";
     } else if (r.verdict === "server_down") {
       text = t("net_server_down");
     } else {
       text = t("net_partial");           // only the server list or Cfx.re services: FiveM starts and joins COLDZ
       state = "ok";
     }
+    if (signinUi.error) hint = t(signinUi.error);
     box.dataset.state = state;
     $("net-text").textContent = text;
     $("net-hint").textContent = hint;
     $("net-hint").hidden = !hint;
+    // 0.4.0: the route button: «Включить» while the sign-in is cut and a relay answers, «Выключить» while it is on
+    const sb = $("btn-net-signin");
+    const canOn = !!(r && r.signin && !r.signin.active && r.signin.tunnel && r.signin.tunnel.ok && signinBlocked(r));
+    const canOff = !!(r && r.signin && r.signin.active);
+    sb.hidden = running ? !(signinUi.busy) : !(canOn || canOff || signinUi.busy);
+    sb.disabled = !!signinUi.busy || running;
+    sb.textContent = t(signinUi.busy === "on" ? "signin_working" : signinUi.busy === "off" ? "signin_stopping" : canOff ? "signin_off" : "signin_on");
+    $("net-signin-note").hidden = !(canOn && !signinUi.busy);
     // «Всё равно играть» (the check can be wrong; the player decides) or «Играть» after a good re-check
     const go = $("btn-net-play");
     go.hidden = !net.fromPlay || running;
@@ -641,6 +705,7 @@
     $("btn-net-retry").onclick = () => { runNetCheck(); };
     $("btn-net-details").onclick = () => { openNet(false); };
     $("btn-net-close").onclick = closeNet;
+    $("btn-net-signin").onclick = toggleSignin;
     $("btn-net-play").onclick = () => { closeNet(); play({ fromNet: true }); };
     document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("net").hidden) closeNet(); });
     document.querySelectorAll(".tab").forEach((b) => { b.onclick = () => showTab(b.dataset.tab); });
@@ -692,9 +757,13 @@
   // &card=play — press «Играть» by itself after start, &card=check — «Проверить связь» (screenshots without clicks).
   // 0.3.5: ?route=reserve — the main server does not answer, a reserve route does («Подключение: резервный маршрут»);
   // ?route=none — nothing answers (with ?net=server: the «server_down» card).
+  // 0.4.0: ?net=signin — the FiveM sign-in (Rockstar) is cut, the backup route answers (the button); &tunnel=0 — the
+  // route does not answer either; &route=on — the route is already on (the «Выключить» button); the button itself
+  // toggles the preview state (&signin=cancel — the Windows prompt is declined).
   function previewTauri() {
     const q = new URLSearchParams(location.search);
     let netCalls = 0;
+    let signinOn = q.get("route") === "on";
     const card = q.get("card");
     if (card === "play" || card === "check") {
       setTimeout(() => document.getElementById(card === "play" ? "play" : "btn-net").click(), 1500);
@@ -771,8 +840,27 @@
         if (reserve && (mode === "server" || mode === "listserver")) verdict = mode === "server" ? "ok" : "cfx_blocked";
         if (!server && !reserve && verdict === "ok") verdict = "server_down";
         previewRoute();
-        return { verdict, blocking: cut, services, server, reserve, route: data.server_status.route, ms: 900 };
+        // 0.4.0: the sign-in hosts and the backup route for them (always present in the preview, like news.json)
+        const signinCut = mode === "signin" && !signinOn;
+        const tunnelOk = q.get("tunnel") !== "0";
+        const signin = {
+          groups: [
+            { id: "rockstar", host: "scui.rockstargames.com", ok: !signinCut && (!signinOn || tunnelOk), problem: signinCut ? "connect" : null, status: signinCut ? null : 403, ms: 300 },
+            { id: "cfx", host: "lambda.fivem.net", ok: true, problem: null, status: 200, ms: 140 }
+          ],
+          tunnel: { address: "198.51.100.20:8443", ok: tunnelOk, status: tunnelOk ? 403 : null, problem: tunnelOk ? null : "relay", ms: 420 },
+          active: signinOn,
+          blocked: signinCut
+        };
+        return { verdict, blocking: cut, services, server, reserve, route: data.server_status.route, signin, ms: 900 };
       }
+      if (cmd === "signin_enable" || cmd === "signin_disable") {
+        await new Promise((r) => setTimeout(r, 1200));
+        if (q.get("signin") === "cancel") throw "cancelled";
+        signinOn = cmd === "signin_enable";
+        return { active: signinOn, ip: signinOn ? "127.0.0.1" : null, hosts: signinOn ? 12 : 0, tunnel: signinOn ? "198.51.100.20:8443" : null };
+      }
+      if (cmd === "signin_status") return { active: signinOn, ip: null, hosts: 0, tunnel: null };
       if (cmd === "pick_fivem") {
         await new Promise((r) => setTimeout(r, 300));
         if (q.get("pick") === "wrong") throw "not_fivem";

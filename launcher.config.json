@@ -1,18 +1,92 @@
 {
   "serverName": "COLDZ",
   "serverAddress": "",
-  "relays": ["177.3.198.34:30120", "46.247.40.34:30120"],
+  "relays": [
+    "177.3.198.34:30120",
+    "46.247.40.34:30120"
+  ],
+  "signin": {
+    "groups": [
+      {
+        "id": "rockstar",
+        "check": [
+          "https://scui.rockstargames.com/",
+          "https://rgl-prod.ros.rockstargames.com/",
+          "https://prod.ros.rockstargames.com/"
+        ],
+        "hosts": [
+          "scui.rockstargames.com",
+          "signin.rockstargames.com",
+          "socialclub.rockstargames.com",
+          "rgl-prod.ros.rockstargames.com",
+          "prod.ros.rockstargames.com",
+          "conductor-prod.ros.rockstargames.com",
+          "rgl.rockstargames.com",
+          "prod.cloud.rockstargames.com",
+          "www.rockstargames.com",
+          "cdn.sc.rockstargames.com",
+          "graph.rockstargames.com",
+          "rsg.sc"
+        ]
+      },
+      {
+        "id": "cfx",
+        "check": [
+          "https://lambda.fivem.net/",
+          "https://policy-live.fivem.net/"
+        ],
+        "hosts": [
+          "lambda.fivem.net",
+          "policy-live.fivem.net",
+          "cnl-hb-live.fivem.net",
+          "runtime.fivem.net",
+          "gss.cfx-services.net"
+        ]
+      }
+    ],
+    "tunnels": []
+  },
   "maxPlayers": 48,
   "ownerEmail": "aaenlly@gmail.com",
   "fivemDownloadUrl": "https://fivem.net/",
   "newsUrl": "https://raw.githubusercontent.com/Poopseeque/coldz-launcher/main/news/news.json",
   "links": [
-    { "icon": "vk", "label": "ВКонтакте", "url": "https://vk.ru/coldz_server" },
-    { "icon": "youtube", "label": "YouTube", "url": "https://youtube.com/@coldzgta5" },
-    { "icon": "discord", "label": "Discord", "url": "https://discord.gg/FUMCMhdNH7" },
-    { "icon": "facebook", "label": "Facebook (English)", "badge": "EN", "url": "https://www.facebook.com/profile.php?id=61595536000990" },
-    { "icon": "facebook", "label": "Facebook (Português)", "badge": "PT", "url": "https://www.facebook.com/profile.php?id=61595611447942" },
-    { "icon": "tiktok", "label": "TikTok", "url": "https://www.tiktok.com/@coldz_gta5" },
-    { "icon": "telegram", "label": "Telegram", "url": "" }
+    {
+      "icon": "vk",
+      "label": "ВКонтакте",
+      "url": "https://vk.ru/coldz_server"
+    },
+    {
+      "icon": "youtube",
+      "label": "YouTube",
+      "url": "https://youtube.com/@coldzgta5"
+    },
+    {
+      "icon": "discord",
+      "label": "Discord",
+      "url": "https://discord.gg/FUMCMhdNH7"
+    },
+    {
+      "icon": "facebook",
+      "label": "Facebook (English)",
+      "badge": "EN",
+      "url": "https://www.facebook.com/profile.php?id=61595536000990"
+    },
+    {
+      "icon": "facebook",
+      "label": "Facebook (Português)",
+      "badge": "PT",
+      "url": "https://www.facebook.com/profile.php?id=61595611447942"
+    },
+    {
+      "icon": "tiktok",
+      "label": "TikTok",
+      "url": "https://www.tiktok.com/@coldz_gta5"
+    },
+    {
+      "icon": "telegram",
+      "label": "Telegram",
+      "url": ""
+    }
   ]
 }

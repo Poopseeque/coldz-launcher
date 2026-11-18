@@ -16,10 +16,13 @@
 //!   * updates itself through the Tauri updater (signed with our own key).
 
 mod fivem;
+mod hosts;
 mod netcheck;
 mod nick;
 mod route;
 mod running;
+mod signin;
+mod tunnel;
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -64,6 +67,9 @@ struct Config {
     /// (an empty list there = no reserve routes).
     #[serde(default)]
     relays: Vec<String>,
+    /// 0.4.0: built-in sign-in hosts and relay tunnels (signin.rs). A `signin` object in news.json wins.
+    #[serde(default)]
+    signin: signin::Setup,
     max_players: u32,
     owner_email: String,
     fivem_download_url: String,
@@ -153,8 +159,21 @@ fn remote_relays() -> &'static RwLock<Option<Vec<String>>> {
     RELAYS.get_or_init(|| RwLock::new(None))
 }
 
+/// 0.4.0: `signin` from news.json. `None` = the key is missing: use the built-in setup.
+fn remote_signin() -> &'static RwLock<Option<signin::Setup>> {
+    static S: OnceLock<RwLock<Option<signin::Setup>>> = OnceLock::new();
+    S.get_or_init(|| RwLock::new(None))
+}
+
+/// The sign-in hosts and tunnels in use (signin.rs `clean`): from news.json, or the built-in ones.
+fn effective_signin() -> signin::Setup {
+    let remote = remote_signin().read().ok().and_then(|g| g.clone());
+    signin::clean(remote.as_ref().unwrap_or(&config().signin))
+}
+
 /// Reads `serverAddress` from a news file. Missing, empty or invalid = back to the built-in address.
 /// 0.3.5: also `relays` (a list of `host:port`): missing or not a list = the built-in reserve routes.
+/// 0.4.0: also `signin` (an object: groups and tunnels): missing or not an object = the built-in setup.
 fn apply_feed(v: &serde_json::Value) {
     let addr = v
         .get("serverAddress")
@@ -171,6 +190,13 @@ fn apply_feed(v: &serde_json::Value) {
         .map(|list| list.iter().filter_map(|r| r.as_str()).map(str::to_string).collect::<Vec<_>>());
     if let Ok(mut slot) = remote_relays().write() {
         *slot = relays;
+    }
+    let signin = v
+        .get("signin")
+        .filter(|s| s.is_object())
+        .and_then(|s| serde_json::from_value::<signin::Setup>(s.clone()).ok());
+    if let Ok(mut slot) = remote_signin().write() {
+        *slot = signin;
     }
 }
 
@@ -626,13 +652,310 @@ async fn check_network(app: AppHandle) -> netcheck::Report {
             _ => netcheck::ServerCheck::default(),
         }
     };
-    let report = netcheck::run(server, netcheck::answers(&config().news_url)).await;
+    let (mut report, signin) = tokio::join!(netcheck::run(server, netcheck::answers(&config().news_url)), signin_check());
+    report.signin = signin;
     if let Some(log) = net_log_path(&app) {
         let (title, lines) = netcheck::log_lines(&report);
         fivem::write_log(&log, &title, &lines);
     }
     report
 }
+
+// ---------------------------------------------------------------- sign-in route (0.4.0, signin.rs)
+
+/// What the launcher keeps about the route while it runs.
+#[derive(Default)]
+struct SigninRun {
+    /// The forwarding task (tunnel.rs `serve`) and what it forwards.
+    task: Option<tauri::async_runtime::JoinHandle<()>>,
+    forward: Option<std::sync::Arc<tunnel::Forward>>,
+    ip: Option<std::net::IpAddr>,
+    /// The hosts file carries the launcher's block.
+    active: bool,
+    /// The tunnel that answered at the last check.
+    tunnel_ok: Option<signin::Tunnel>,
+    /// Groups whose straight check failed at the last check (signin.rs `hosts_to_route`).
+    failed: Vec<String>,
+}
+
+fn signin_run() -> &'static std::sync::Mutex<SigninRun> {
+    static RUN: OnceLock<std::sync::Mutex<SigninRun>> = OnceLock::new();
+    RUN.get_or_init(|| std::sync::Mutex::new(SigninRun::default()))
+}
+
+fn signin_lock() -> std::sync::MutexGuard<'static, SigninRun> {
+    signin_run().lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// The elevated copy (`--coldz-hosts <file>`, main.rs): writes the block and exits.
+pub fn hosts_main(file: &str) -> i32 {
+    hosts::apply(file)
+}
+
+/// Runs the futures at once, answers in order (no extra crate for one join).
+async fn join_all<F: std::future::Future>(futs: Vec<F>) -> Vec<F::Output> {
+    let mut pending: Vec<Option<std::pin::Pin<Box<F>>>> = futs.into_iter().map(|f| Some(Box::pin(f))).collect();
+    let mut results: Vec<Option<F::Output>> = (0..pending.len()).map(|_| None).collect();
+    std::future::poll_fn(|cx| {
+        let mut all_done = true;
+        for (i, slot) in pending.iter_mut().enumerate() {
+            if let Some(f) = slot {
+                match f.as_mut().poll(cx) {
+                    std::task::Poll::Ready(v) => {
+                        results[i] = Some(v);
+                        *slot = None;
+                    }
+                    std::task::Poll::Pending => all_done = false,
+                }
+            }
+        }
+        if all_done {
+            std::task::Poll::Ready(())
+        } else {
+            std::task::Poll::Pending
+        }
+    })
+    .await;
+    results.into_iter().flatten().collect()
+}
+
+fn check_host(setup: &signin::Setup) -> Option<String> {
+    reqwest::Url::parse(setup.groups.first()?.check.first()?).ok()?.host_str().map(str::to_string)
+}
+
+/// For the window and the connection check: the sign-in hosts straight (through the route when it is on) and the
+/// first tunnel that answers. None: no groups set up.
+async fn signin_check() -> Option<netcheck::SigninReport> {
+    let setup = effective_signin();
+    let probe_host = check_host(&setup)?;
+    let groups = async {
+        let futs: Vec<_> = setup.groups.iter().map(|g| netcheck::probe_url(&g.check[0])).collect();
+        setup
+            .groups
+            .iter()
+            .zip(join_all(futs).await)
+            .map(|(g, p)| netcheck::GroupProbe { id: g.id.clone(), host: p.host, ok: p.ok, problem: p.problem, status: p.status, ms: p.ms })
+            .collect::<Vec<_>>()
+    };
+    let tunnels = async {
+        if setup.tunnels.is_empty() {
+            return None;
+        }
+        let started = Instant::now();
+        let futs: Vec<_> = setup.tunnels.iter().map(|t| tunnel::probe(t, &probe_host)).collect();
+        let answers = join_all(futs).await;
+        let ms = started.elapsed().as_millis().min(u32::MAX as u128) as u32;
+        let probe = |i: usize, ok: bool, status: Option<u16>, problem: Option<&'static str>| netcheck::TunnelProbe {
+            address: setup.tunnels[i].address.clone(),
+            ok,
+            status,
+            problem,
+            ms,
+        };
+        if let Some(i) = answers.iter().position(|a| a.is_ok()) {
+            return Some((Some(setup.tunnels[i].clone()), probe(i, true, answers[i].ok(), None)));
+        }
+        let e = answers.first().and_then(|a| a.as_ref().err().copied()).unwrap_or("relay");
+        Some((None, probe(0, false, None, Some(e))))
+    };
+    let (groups, tunnel) = tokio::join!(groups, tunnels);
+    let active = { signin_lock().active };
+    let failed: Vec<String> = groups.iter().filter(|g| !g.ok).map(|g| g.id.clone()).collect();
+    let (tunnel_ok, tunnel) = match tunnel {
+        Some((t, p)) => (t, Some(p)),
+        None => (None, None),
+    };
+    {
+        let mut run = signin_lock();
+        run.tunnel_ok = tunnel_ok;
+        if !active {
+            run.failed = failed.clone();
+        }
+    }
+    Some(netcheck::SigninReport { blocked: !failed.is_empty() && !active, groups, tunnel, active })
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+struct SigninStatus {
+    active: bool,
+    /// Where the hosts point while the route is on.
+    ip: Option<String>,
+    hosts: usize,
+    tunnel: Option<String>,
+}
+
+fn signin_status_now() -> SigninStatus {
+    let run = signin_lock();
+    SigninStatus {
+        active: run.active,
+        ip: run.ip.map(|ip| ip.to_string()),
+        hosts: run.forward.as_ref().map(|f| f.hosts.len()).unwrap_or(0),
+        tunnel: run.forward.as_ref().map(|f| f.tunnel.address.clone()),
+    }
+}
+
+#[tauri::command]
+fn signin_status() -> SigninStatus {
+    signin_status_now()
+}
+
+/// Starts (or restarts) the local forwarder for `hosts` through `tunnel`. Returns the loopback address it listens on.
+fn start_forwarder(tunnel: signin::Tunnel, hosts: Vec<String>) -> Result<std::net::IpAddr, String> {
+    let mut run = signin_lock();
+    if let Some(t) = run.task.take() {
+        t.abort();
+    }
+    run.forward = None;
+    let (std_listener, ip) = tunnel::bind_local().map_err(|_| "port_busy".to_string())?;
+    let listener = tokio::net::TcpListener::from_std(std_listener).map_err(|_| "port_busy".to_string())?;
+    let forward = std::sync::Arc::new(tunnel::Forward { tunnel, hosts });
+    run.forward = Some(forward.clone());
+    run.ip = Some(ip);
+    run.task = Some(tauri::async_runtime::spawn(tunnel::serve(listener, forward)));
+    Ok(ip)
+}
+
+fn stop_forwarder() {
+    let mut run = signin_lock();
+    if let Some(t) = run.task.take() {
+        t.abort();
+    }
+    run.forward = None;
+    run.ip = None;
+}
+
+/// A folder the launcher may write the block file to (hosts.rs): next to settings.json.
+fn signin_work_dir(app: &AppHandle) -> PathBuf {
+    app.path().app_config_dir().unwrap_or_else(|_| std::env::temp_dir())
+}
+
+/// The tunnel to use: the one that answered at the last check, or asked now.
+async fn pick_tunnel(setup: &signin::Setup) -> Option<signin::Tunnel> {
+    if let Some(t) = signin_lock().tunnel_ok.clone() {
+        return Some(t);
+    }
+    let host = check_host(setup)?;
+    let futs: Vec<_> = setup.tunnels.iter().map(|t| tunnel::probe(t, &host)).collect();
+    let answers = join_all(futs).await;
+    let picked = answers.iter().position(|a| a.is_ok()).map(|i| setup.tunnels[i].clone());
+    signin_lock().tunnel_ok = picked.clone();
+    picked
+}
+
+/// «Включить резервный маршрут входа»: the forwarder, then the hosts block through the Windows prompt.
+/// Err: no_setup (no hosts or tunnels in news.json), no_route (no tunnel answers), port_busy (443 is taken on both
+/// loopback addresses), cancelled (the player said no to the prompt), failed.
+#[tauri::command]
+async fn signin_enable(app: AppHandle) -> Result<SigninStatus, String> {
+    let setup = effective_signin();
+    if setup.groups.is_empty() || setup.tunnels.is_empty() {
+        return Err("no_setup".into());
+    }
+    let tunnel = pick_tunnel(&setup).await.ok_or_else(|| "no_route".to_string())?;
+    let failed = signin_lock().failed.clone();
+    let hosts = signin::hosts_to_route(&setup, &failed);
+    let ip = start_forwarder(tunnel, hosts.clone())?;
+    let block = signin::block(&ip.to_string(), &hosts);
+    let work = signin_work_dir(&app);
+    let written = tauri::async_runtime::spawn_blocking(move || hosts::request(Some(&block), &work))
+        .await
+        .map_err(|_| "failed".to_string())?;
+    match written {
+        Ok(()) => {
+            signin_lock().active = true;
+            let _ = update_settings(&app, |s| s.signin_route = "on".into());
+            if let Some(log) = net_log_path(&app) {
+                fivem::write_log(&log, &format!("резервный маршрут входа включён: {} хостов → {}", hosts.len(), ip), &hosts);
+            }
+            Ok(signin_status_now())
+        }
+        Err(hosts::Refused::Cancelled) => {
+            stop_forwarder();
+            Err("cancelled".into())
+        }
+        Err(hosts::Refused::Failed) => {
+            stop_forwarder();
+            Err("failed".into())
+        }
+    }
+}
+
+/// «Выключить резервный маршрут входа» and the launcher's exit: the block out of the hosts file (one prompt), then
+/// the forwarder stops. The player says no: the block stays and so does the forwarder (Err("cancelled")).
+#[tauri::command]
+async fn signin_disable(app: AppHandle) -> Result<SigninStatus, String> {
+    let work = signin_work_dir(&app);
+    let removed = tauri::async_runtime::spawn_blocking(move || hosts::request(None, &work))
+        .await
+        .map_err(|_| "failed".to_string())?;
+    match removed {
+        Ok(()) => {
+            stop_forwarder();
+            signin_lock().active = false;
+            let _ = update_settings(&app, |s| s.signin_route = "off".into());
+            if let Some(log) = net_log_path(&app) {
+                fivem::write_log(&log, "резервный маршрут входа выключен", &[]);
+            }
+            Ok(signin_status_now())
+        }
+        Err(hosts::Refused::Cancelled) => Err("cancelled".into()),
+        Err(hosts::Refused::Failed) => Err("failed".into()),
+    }
+}
+
+/// At the launcher's exit, on the main thread: the block must not outlive the forwarder.
+fn signin_cleanup(app: &AppHandle) {
+    let active = { signin_lock().active };
+    if !active && hosts::installed().is_none() {
+        return;
+    }
+    let work = signin_work_dir(app);
+    if hosts::request(None, &work).is_ok() {
+        stop_forwarder();
+        signin_lock().active = false;
+        let _ = update_settings(app, |s| s.signin_route = "off".into());
+    }
+}
+
+/// At the launcher's start: a block left in the hosts file (a crash, or the player said no to the removal) with
+/// the route "on" in settings.json is taken over without a prompt when the forwarder can listen on the same
+/// address and a tunnel answers; otherwise the block is removed (one prompt), so the sign-in hosts never point at
+/// a port nobody listens on.
+async fn signin_resume(app: AppHandle) {
+    let Some((ip, hosts)) = hosts::installed() else { return };
+    let wanted_on = settings_path(&app).map(|p| nick::load(&p).signin_route == "on").unwrap_or(false);
+    let setup = effective_signin();
+    let same_ip = ip.parse::<std::net::IpAddr>().ok();
+    if wanted_on && !hosts.is_empty() {
+        if let Some(t) = pick_tunnel(&setup).await {
+            // the forwarder takes the first free loopback address; it must be the one the block names
+            if let Ok(bound) = start_forwarder(t, hosts.clone()) {
+                if Some(bound) == same_ip {
+                    signin_lock().active = true;
+                    if let Some(log) = net_log_path(&app) {
+                        fivem::write_log(
+                            &log,
+                            &format!("резервный маршрут входа продолжен после перезапуска: {} хостов → {}", hosts.len(), bound),
+                            &[],
+                        );
+                    }
+                    return;
+                }
+                stop_forwarder();
+            }
+        }
+    }
+    let work = signin_work_dir(&app);
+    let removed = tauri::async_runtime::spawn_blocking(move || hosts::request(None, &work)).await;
+    if matches!(removed, Ok(Ok(()))) {
+        let _ = update_settings(&app, |s| s.signin_route = "off".into());
+        if let Some(log) = net_log_path(&app) {
+            fivem::write_log(&log, "резервный маршрут входа: старые строки hosts убраны при запуске", &[]);
+        }
+    }
+}
+
 
 #[tauri::command]
 async fn server_status() -> Status {
@@ -861,6 +1184,9 @@ pub fn run() {
             // Address from the last downloaded news.json, so the status works before a new download.
             let cache = app.path().app_cache_dir().ok().map(|d| d.join("news.json"));
             apply_feed(&local_news(cache).1);
+            // 0.4.0: a sign-in route block left in the hosts file from the last run (signin_resume)
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move { signin_resume(handle).await });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -877,10 +1203,19 @@ pub fn run() {
             fetch_news,
             open_external,
             check_update,
-            install_update
+            install_update,
+            signin_status,
+            signin_enable,
+            signin_disable
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running COLDZ launcher");
+        .build(tauri::generate_context!())
+        .expect("error while building COLDZ launcher")
+        .run(|app, event| {
+            // 0.4.0: the hosts block must not outlive the forwarder (signin.rs)
+            if let tauri::RunEvent::Exit = event {
+                signin_cleanup(app);
+            }
+        });
 }
 
 #[cfg(test)]

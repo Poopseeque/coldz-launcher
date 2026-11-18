@@ -132,7 +132,11 @@
       <p class="dialog__text" id="net-text"></p>
       <ul class="netlist" id="net-list"></ul>
       <p class="dialog__hint" id="net-hint" hidden></p>
+      <!-- 0.4.0: резервный маршрут входа в FiveM (src-tauri/src/signin.rs): кнопка видна, когда вход Rockstar не
+           отвечает, а маршрут COLDZ отвечает; под ней одной строкой, что потребуются права администратора и файл hosts -->
+      <p class="dialog__hint" id="net-signin-note" hidden data-i18n="net_signin_note"></p>
       <div class="dialog__actions">
+        <button class="btn btn--accent" id="btn-net-signin" hidden></button>
         <button class="btn btn--accent" id="btn-net-play" hidden></button>
         <button class="btn" id="btn-net-recheck" data-i18n="net_retry"></button>
         <button class="btn" id="btn-net-close" data-i18n="close"></button>

@@ -105,7 +105,75 @@ pub struct Report {
     pub reserve: Option<bool>,
     /// 0.3.5: the route «Играть» will use: "main" | "reserve" | "none" (nothing answered). None: not asked.
     pub route: Option<&'static str>,
+    /// 0.4.0: the FiveM sign-in hosts (signin.rs) and the reserve route for them. None: not asked (no groups set up).
+    pub signin: Option<SigninReport>,
     pub ms: u32,
+}
+
+/// 0.4.0: one group of sign-in hosts, asked straight (its first `check` address).
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupProbe {
+    pub id: String,
+    pub host: String,
+    pub ok: bool,
+    pub problem: Option<&'static str>,
+    pub status: Option<u16>,
+    pub ms: u32,
+}
+
+/// 0.4.0: the relay tunnel (tunnel.rs), asked for the first group's host.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TunnelProbe {
+    pub address: String,
+    pub ok: bool,
+    pub status: Option<u16>,
+    pub problem: Option<&'static str>,
+    pub ms: u32,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SigninReport {
+    pub groups: Vec<GroupProbe>,
+    /// None: no tunnels in news.json.
+    pub tunnel: Option<TunnelProbe>,
+    /// The route is on now: the hosts file points the sign-in hosts at the launcher, which forwards them.
+    pub active: bool,
+    /// Some group does not answer and the route is off: FiveM will not sign in. With the route on, the groups are
+    /// asked through it, so `blocked` then means the route itself does not work.
+    pub blocked: bool,
+}
+
+/// 0.4.0: any https address, the way a service is asked (name, TCP, TLS, answer). For the sign-in hosts.
+pub async fn probe_url(url: &str) -> Probe {
+    let started = Instant::now();
+    let step = fetch(&client(), url, 0, started + PROBE_BUDGET, true).await;
+    let first = Probe {
+        id: "signin",
+        host: host_of(url),
+        ok: step.problem.is_none(),
+        problem: step.problem,
+        status: step.status,
+        bytes: step.bytes,
+        ms: started.elapsed().as_millis().min(u32::MAX as u128) as u32,
+        critical: true,
+    };
+    if first.ok || Duration::from_millis(first.ms as u64) >= FAST_FAIL || matches!(first.problem, Some("timeout") | Some("slow")) {
+        return first;
+    }
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    let again = Instant::now();
+    let step = fetch(&client(), url, 0, again + PROBE_BUDGET, true).await;
+    Probe {
+        ok: step.problem.is_none(),
+        problem: step.problem,
+        status: step.status,
+        bytes: step.bytes,
+        ms: first.ms + 400 + again.elapsed().as_millis().min(u32::MAX as u128) as u32,
+        ..first
+    }
 }
 
 /// Our server, asked by lib.rs: the main address and the reserve routes (route.rs).
@@ -369,6 +437,7 @@ where
         server: server.main,
         reserve: server.reserve,
         route: server.route,
+        signin: None,
         ms: started.elapsed().as_millis().min(u32::MAX as u128) as u32,
     }
 }
@@ -400,7 +469,7 @@ pub fn log_lines(r: &Report) -> (String, Vec<String>) {
         route,
         r.ms
     );
-    let lines = r
+    let mut lines: Vec<String> = r
         .services
         .iter()
         .map(|p| {
@@ -415,6 +484,33 @@ pub fn log_lines(r: &Report) -> (String, Vec<String>) {
             )
         })
         .collect();
+    if let Some(s) = &r.signin {
+        for g in &s.groups {
+            lines.push(format!(
+                "вход {} {}: {}{}, {} мс",
+                g.id,
+                g.host,
+                g.problem.unwrap_or("ok"),
+                g.status.map(|s| format!(" (HTTP {s})")).unwrap_or_default(),
+                g.ms
+            ));
+        }
+        match &s.tunnel {
+            Some(t) => lines.push(format!(
+                "резервный маршрут входа {}: {}{}, {} мс",
+                t.address,
+                t.problem.unwrap_or("ok"),
+                t.status.map(|s| format!(" (HTTP {s})")).unwrap_or_default(),
+                t.ms
+            )),
+            None => lines.push("резервный маршрут входа: не настроен".into()),
+        }
+        lines.push(format!(
+            "резервный маршрут входа: {}{}",
+            if s.active { "включён" } else { "выключен" },
+            if s.blocked { "; вход в FiveM у провайдера не отвечает" } else { "" }
+        ));
+    }
     (title, lines)
 }
 
@@ -496,6 +592,7 @@ mod tests {
             server: Some(false),
             reserve: Some(true),
             route: Some("reserve"),
+            signin: None,
             ms: 900,
         };
         let (title, _) = log_lines(&r);
@@ -715,6 +812,7 @@ mod tests {
             server: Some(true),
             reserve: None,
             route: None,
+            signin: None,
             ms: 8100,
         };
         let (title, lines) = log_lines(&r);
