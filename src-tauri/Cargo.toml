@@ -28,6 +28,9 @@ tokio = { version = "1", features = ["net", "time", "sync", "macros", "rt", "io-
 # already in the tree through reqwest.
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
 ring = "0.17"
+# 0.5.0: the signature of news.json (minisign, its own key). Both are already in the tree through the updater.
+minisign-verify = "0.3"
+base64 = "0.23"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "io-util"] }

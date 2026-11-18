@@ -57,7 +57,8 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ1M0U3MUI3NTgwNDJCNDMKUldSREt3Ull0M0UrUlRZNG1jNXoyQ0VBTFdaYktJRWQxaU5lT1M4eXF1M3pldlE0bWNqWDlsa28K",
       "endpoints": [
-        "https://github.com/Poopseeque/coldz-launcher/releases/latest/download/latest.json"
+        "https://github.com/Poopseeque/coldz-launcher/releases/latest/download/latest.json",
+        "https://coldz.vip/launcher/latest.json"
       ],
       "windows": { "installMode": "passive" }
     }

@@ -59,6 +59,10 @@
   "ownerEmail": "aaenlly@gmail.com",
   "fivemDownloadUrl": "https://fivem.net/",
   "newsUrl": "https://raw.githubusercontent.com/Poopseeque/coldz-launcher/main/news/news.json",
+  "newsUrls": [
+    "https://coldz.vip/launcher/news.json"
+  ],
+  "newsPubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYyMEI3MEJBOEYzMEQ4REEKUldUYTJEQ1B1bkFMOHJqUStkaVhhaVh6eXVKS0xHYXlRSHRRK2hSWmdVcFlVeWhtTEk1NTk5aVYK",
   "links": [
     {
       "icon": "vk",

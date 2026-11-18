@@ -83,6 +83,20 @@ if (Test-Path $sigPath) {
     }
     $json = $latest | ConvertTo-Json -Depth 6
     [System.IO.File]::WriteAllText((Join-Path $outDir "latest.json"), $json, (New-Object System.Text.UTF8Encoding($false)))
+
+    # 0.5.0: the mirror on coldz.vip (README 7е): the same signed installer, latest.json pointing at coldz.vip.
+    # The updater asks GitHub first, then https://coldz.vip/launcher/latest.json (tauri.conf.json endpoints).
+    $siteDir = Join-Path $outDir "site\launcher"
+    New-Item -ItemType Directory -Force $siteDir | Out-Null
+    Copy-Item (Join-Path $outDir $fileName) (Join-Path $siteDir $fileName) -Force
+    Copy-Item (Join-Path $outDir "$fileName.sig") (Join-Path $siteDir "$fileName.sig") -Force
+    $latest.platforms."windows-x86_64".url = "https://coldz.vip/launcher/$fileName"
+    $siteJson = $latest | ConvertTo-Json -Depth 6
+    [System.IO.File]::WriteAllText((Join-Path $siteDir "latest.json"), $siteJson, (New-Object System.Text.UTF8Encoding($false)))
+    foreach ($f in @("news.json", "news.json.sig")) {
+        $src = Join-Path $Root "release\site\launcher\$f"
+        if (Test-Path $src) { Copy-Item $src (Join-Path $siteDir $f) -Force }
+    }
 }
 
 $sizeMb = [math]::Round((Get-Item (Join-Path $outDir $fileName)).Length / 1MB, 2)

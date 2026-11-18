@@ -2,7 +2,12 @@ node_modules/
 src-tauri/target/
 src-tauri/gen/
 dist/
-release/
+release/*
+# 0.5.0: the mirror files for coldz.vip (README 7e); the installer and latest.json come from the release build
+!release/site/
+release/site/launcher/*.exe
+release/site/launcher/*.exe.sig
+release/site/launcher/latest.json
 # Signing keys must never be committed
 *.key
 *.pfx

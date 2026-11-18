@@ -74,7 +74,16 @@ struct Config {
     max_players: u32,
     owner_email: String,
     fivem_download_url: String,
+    /// The first address of news.json (GitHub). Kept for older tools; the launcher asks `news_urls` too.
     news_url: String,
+    /// 0.5.0: more addresses of the same news.json (coldz.vip): asked at the same time, the first good answer wins.
+    #[serde(default)]
+    news_urls: Vec<String>,
+    /// 0.5.0: the public key news.json is signed with (minisign, base64 like the updater's `pubkey`; its own key,
+    /// not the updater's). Empty: no check (only for a test build). A file without a good signature is not used:
+    /// the launcher stays on the last good copy or the one built in.
+    #[serde(default)]
+    news_pubkey: String,
     #[serde(default)]
     links: Vec<Link>,
 }
@@ -653,7 +662,13 @@ async fn check_network(app: AppHandle) -> netcheck::Report {
             _ => netcheck::ServerCheck::default(),
         }
     };
-    let (mut report, signin) = tokio::join!(netcheck::run(server, netcheck::answers(&config().news_url)), signin_check());
+    // 0.5.0: «is there internet at all» = GitHub or coldz.vip (news addresses) answers
+    let control = async {
+        let urls = news_urls();
+        let futs: Vec<_> = urls.iter().map(|u| netcheck::answers(u)).collect();
+        join_all(futs).await.into_iter().any(|a| a)
+    };
+    let (mut report, signin) = tokio::join!(netcheck::run(server, control), signin_check());
     report.signin = signin;
     if let Some(log) = net_log_path(&app) {
         let (title, lines) = netcheck::log_lines(&report);
@@ -1079,19 +1094,122 @@ fn valid_news(v: &serde_json::Value) -> bool {
     v.get("items").map_or(false, |i| i.is_array())
 }
 
+/// 0.5.0: every address of news.json, in order, without repeats: `newsUrl`, then `newsUrls`.
+fn news_urls() -> Vec<String> {
+    let c = config();
+    let mut out: Vec<String> = Vec::new();
+    for u in std::iter::once(&c.news_url).chain(c.news_urls.iter()) {
+        let u = u.trim();
+        if u.starts_with("https://") && !out.iter().any(|x| x == u) {
+            out.push(u.to_string());
+        }
+    }
+    out
+}
+
+/// The signature of a news.json body (`<file>.sig`, what `tauri signer sign` writes: base64 of the minisign text)
+/// checked with `pubkey` (base64 of the minisign public key, as in tauri.conf.json). An empty key: not checked.
+fn news_signed(body: &[u8], sig: &str, pubkey: &str) -> bool {
+    use base64::Engine;
+    if pubkey.trim().is_empty() {
+        return true;
+    }
+    let b64 = |s: &str| {
+        base64::engine::general_purpose::STANDARD
+            .decode(s.trim())
+            .ok()
+            .and_then(|b| String::from_utf8(b).ok())
+    };
+    let (Some(pk), Some(sig)) = (b64(pubkey), b64(sig)) else { return false };
+    let (Ok(pk), Ok(sig)) = (minisign_verify::PublicKey::decode(&pk), minisign_verify::Signature::decode(&sig)) else {
+        return false;
+    };
+    pk.verify(body, &sig, false).is_ok()
+}
+
+/// One copy of news.json: the body and its signature. Only a good signature and a valid file count.
+#[derive(Debug, Clone)]
+struct SignedNews {
+    value: serde_json::Value,
+    body: Vec<u8>,
+    sig: String,
+}
+
+/// `signedAt` (scripts/sign-news.py writes it, the signature covers it): the newest copy wins when two answer.
+fn signed_at(v: &serde_json::Value) -> String {
+    v.get("signedAt").and_then(|s| s.as_str()).unwrap_or("").to_string()
+}
+
+fn check_news(body: Vec<u8>, sig: &str, pubkey: &str) -> Option<SignedNews> {
+    if !news_signed(&body, sig, pubkey) {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_slice(&body).ok().filter(valid_news)?;
+    Some(SignedNews { value, body, sig: sig.trim().to_string() })
+}
+
+async fn get_bytes(url: &str) -> Option<Vec<u8>> {
+    let resp = http().get(url).send().await.ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    resp.bytes().await.ok().map(|b| b.to_vec())
+}
+
+async fn fetch_signed(url: String, pubkey: String) -> Option<SignedNews> {
+    let sig_url = format!("{url}.sig");
+    let (body, sig) = tokio::join!(get_bytes(&url), get_bytes(&sig_url));
+    let sig = if pubkey.trim().is_empty() { String::new() } else { String::from_utf8(sig?).ok()? };
+    check_news(body?, &sig, &pubkey)
+}
+
+/// After the first good copy, the others get this long to answer too (a newer `signedAt` wins).
+const NEWS_GRACE: Duration = Duration::from_millis(1500);
+
+/// All addresses at once; the first good copy, or a newer one that comes within `NEWS_GRACE` after it.
+async fn first_signed(urls: Vec<String>, pubkey: String) -> Option<(SignedNews, String)> {
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<Option<(SignedNews, String)>>(urls.len().max(1));
+    for u in urls {
+        let (tx, pk) = (tx.clone(), pubkey.clone());
+        tokio::spawn(async move {
+            let got = fetch_signed(u.clone(), pk).await.map(|n| (n, u));
+            let _ = tx.send(got).await;
+        });
+    }
+    drop(tx);
+    let mut best: Option<(SignedNews, String)> = None;
+    let mut deadline: Option<tokio::time::Instant> = None;
+    loop {
+        let next = match deadline {
+            Some(d) => match tokio::time::timeout_at(d, rx.recv()).await {
+                Ok(n) => n,
+                Err(_) => break,
+            },
+            None => rx.recv().await,
+        };
+        let Some(answer) = next else { break };
+        if let Some((n, u)) = answer {
+            if best.as_ref().map_or(true, |(b, _)| signed_at(&n.value) > signed_at(&b.value)) {
+                best = Some((n, u));
+            }
+            deadline.get_or_insert_with(|| tokio::time::Instant::now() + NEWS_GRACE);
+        }
+    }
+    best
+}
+
 #[tauri::command]
 async fn fetch_news(app: AppHandle) -> News {
     let cache = app.path().app_cache_dir().ok().map(|d| d.join("news.json"));
-
-    if !config().news_url.is_empty() {
-        if let Some(v) = get_json(&config().news_url).await.filter(valid_news) {
-            if let Some(c) = &cache {
-                let _ = std::fs::create_dir_all(c.parent().unwrap());
-                let _ = std::fs::write(c, v.to_string());
-            }
-            apply_feed(&v);
-            return News { source: "remote", data: with_rules(v) };
+    let pubkey = config().news_pubkey.clone();
+    if let Some((n, _url)) = first_signed(news_urls(), pubkey).await {
+        if let Some(c) = &cache {
+            let _ = std::fs::create_dir_all(c.parent().unwrap());
+            let _ = std::fs::write(c, &n.body);
+            let _ = std::fs::write(c.with_extension("json.sig"), &n.sig);
         }
+        apply_feed(&n.value);
+        return News { source: "remote", data: with_rules(n.value) };
     }
     let (source, data) = local_news(cache);
     apply_feed(&data);
@@ -1110,14 +1228,14 @@ fn with_rules(mut v: serde_json::Value) -> serde_json::Value {
     v
 }
 
-/// Last downloaded news, or the copy built into the launcher.
+/// Last downloaded news (0.5.0: only with its good signature next to it), or the copy built into the launcher.
 fn local_news(cache: Option<PathBuf>) -> (&'static str, serde_json::Value) {
-    if let Some(v) = cache
-        .and_then(|c| std::fs::read_to_string(c).ok())
-        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-        .filter(valid_news)
-    {
-        return ("cache", v);
+    if let Some(n) = cache.and_then(|c| {
+        let body = std::fs::read(&c).ok()?;
+        let sig = std::fs::read_to_string(c.with_extension("json.sig")).unwrap_or_default();
+        check_news(body, &sig, &config().news_pubkey)
+    }) {
+        return ("cache", n.value);
     }
     ("bundled", serde_json::from_str(BUNDLED_NEWS).unwrap_or_default())
 }
@@ -1523,6 +1641,80 @@ mod tests {
                 l.local_addr().unwrap().port()
             };
             assert_eq!(post_nick(&nick::endpoint("127.0.0.1", closed), "x", "abc").await.status, "unreachable");
+        });
+    }
+
+    /// 0.5.0: news.json in the repo is signed with the news key (scripts/sign-news.py): the launcher accepts it; a
+    /// changed byte or another key is refused. Fails when news.json was edited without signing it again.
+    #[test]
+    fn news_signature() {
+        let pubkey = &config().news_pubkey;
+        assert!(!pubkey.is_empty(), "launcher.config.json newsPubkey");
+        let updater_key = include_str!("../tauri.conf.json");
+        assert!(!updater_key.contains(pubkey.as_str()), "the news key must not be the updater key");
+        let sig = include_str!("../../news/news.json.sig");
+        assert!(news_signed(BUNDLED_NEWS.as_bytes(), sig, pubkey), "news/news.json.sig does not match: run python scripts/sign-news.py");
+        let mut changed = BUNDLED_NEWS.as_bytes().to_vec();
+        let i = changed.iter().position(|b| *b == b'1').unwrap();
+        changed[i] = b'2';
+        assert!(!news_signed(&changed, sig, pubkey));
+        assert!(!news_signed(BUNDLED_NEWS.as_bytes(), "", pubkey));
+        assert!(!news_signed(BUNDLED_NEWS.as_bytes(), "bm90IGEgc2lnbmF0dXJl", pubkey));
+        // the updater's key does not open the news
+        let conf: serde_json::Value = serde_json::from_str(updater_key).unwrap();
+        let upd = conf.pointer("/plugins/updater/pubkey").and_then(|k| k.as_str()).unwrap();
+        assert!(!news_signed(BUNDLED_NEWS.as_bytes(), sig, upd));
+        assert!(check_news(BUNDLED_NEWS.as_bytes().to_vec(), sig, pubkey).is_some());
+        assert!(check_news(b"{\"x\":1}".to_vec(), "", "").is_none(), "no items: not news");
+        // addresses: GitHub first, coldz.vip after it
+        let urls = news_urls();
+        assert!(urls[0].starts_with("https://raw.githubusercontent.com/"), "{urls:?}");
+        assert!(urls.iter().any(|u| u == "https://coldz.vip/launcher/news.json"), "{urls:?}");
+    }
+
+    /// 0.5.0: two addresses: a dead one and a slow good one: the good one wins; a newer signedAt wins over an older
+    /// one that came first; a wrong signature never wins.
+    #[test]
+    fn news_from_the_first_good_address() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        rt.block_on(async {
+            // serves /news.json and /news.json.sig, after `delay_ms`
+            async fn site(body: String, sig: String, delay_ms: u64) -> String {
+                let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let port = l.local_addr().unwrap().port();
+                tokio::spawn(async move {
+                    loop {
+                        let Ok((mut c, _)) = l.accept().await else { return };
+                        let (body, sig) = (body.clone(), sig.clone());
+                        tokio::spawn(async move {
+                            let mut buf = vec![0u8; 2048];
+                            let n = c.read(&mut buf).await.unwrap_or(0);
+                            let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                            let text = if req.starts_with("GET /news.json.sig") { sig } else { body };
+                            let reply = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{text}", text.len());
+                            let _ = c.write_all(reply.as_bytes()).await;
+                        });
+                    }
+                });
+                format!("http://127.0.0.1:{port}/news.json")
+            }
+            let dead = "http://127.0.0.1:1/news.json".to_string();
+            let a = r#"{"items":[],"signedAt":"2026-11-18T10:00:00Z"}"#.to_string();
+            let b = r#"{"items":[],"signedAt":"2026-11-18T12:00:00Z"}"#.to_string();
+            // no key: any valid file counts (the signature itself is tested above)
+            let slow = site(a.clone(), String::new(), 300).await;
+            let got = first_signed(vec![dead.clone(), slow.clone()], String::new()).await.unwrap();
+            assert_eq!(got.1, slow);
+            let newer_late = site(b.clone(), String::new(), 900).await;
+            let older_fast = site(a.clone(), String::new(), 50).await;
+            let got = first_signed(vec![older_fast, newer_late.clone()], String::new()).await.unwrap();
+            assert_eq!((got.1.as_str(), signed_at(&got.0.value).as_str()), (newer_late.as_str(), "2026-11-18T12:00:00Z"));
+            // with the real key: an unsigned copy is not taken
+            let unsigned = site(a, "bm90IGEgc2lnbmF0dXJl".into(), 10).await;
+            assert!(first_signed(vec![unsigned, dead], config().news_pubkey.clone()).await.is_none());
         });
     }
 
