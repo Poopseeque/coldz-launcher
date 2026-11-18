@@ -148,6 +148,23 @@
   ],
   "items": [
     {
+      "id": "launcher-2026-11-18-0-4-0",
+      "date": "2026-11-18",
+      "pinned": false,
+      "title": {
+        "ru": "Лаунчер 0.4.0: вход в FiveM через резервный маршрут",
+        "en": "Launcher 0.4.0: FiveM sign-in through a backup route",
+        "es": "Lanzador 0.4.0: inicio de sesión de FiveM por ruta de respaldo",
+        "pt-BR": "Launcher 0.4.0: login do FiveM por rota reserva"
+      },
+      "body": {
+        "ru": "Если FiveM у вас не запускается с ошибкой «Failed to connect to authentication services», это не сервер: у части провайдеров не отвечает вход Rockstar.\nЛаунчер теперь это видит сам: нажмите «Играть» или «Проверить связь». Если вход не отвечает, появится кнопка «Включить резервный маршрут входа». Подтвердите запрос Windows, и вход пойдёт через сервер COLDZ. При закрытии лаунчера маршрут выключается сам.\nЕсли резервный маршрут не отвечает, пока поможет VPN только на время входа в FiveM: после входа выключите его и подключайтесь к COLDZ.",
+        "en": "If FiveM does not start with “Failed to connect to authentication services”, it is not the server: with some providers the Rockstar sign-in does not answer.\nThe launcher now sees this itself: press Play or Check connection. If the sign-in does not answer, a button “Turn on the backup sign-in route” appears. Confirm the Windows prompt and the sign-in goes through the COLDZ server. The route turns off by itself when you close the launcher.\nIf the backup route does not answer, a VPN only while FiveM signs in helps for now: turn it off after the sign-in and connect to COLDZ.",
+        "es": "Si FiveM no arranca con «Failed to connect to authentication services», no es el servidor: con algunos proveedores el inicio de sesión de Rockstar no responde.\nEl lanzador ahora lo detecta: pulsa Jugar o Comprobar conexión. Si el inicio de sesión no responde, aparece el botón «Activar la ruta de respaldo». Confirma la solicitud de Windows y el inicio de sesión pasa por el servidor COLDZ. La ruta se desactiva sola al cerrar el lanzador.\nSi la ruta de respaldo no responde, por ahora ayuda una VPN solo durante el inicio de sesión de FiveM: apágala después y conéctate a COLDZ.",
+        "pt-BR": "Se o FiveM não abre com «Failed to connect to authentication services», não é o servidor: em alguns provedores o login da Rockstar não responde.\nO launcher agora percebe isso sozinho: clique em Jogar ou Verificar conexão. Se o login não responder, aparece o botão «Ativar a rota reserva de login». Confirme o pedido do Windows e o login passa pelo servidor COLDZ. A rota se desativa sozinha quando você fecha o launcher.\nSe a rota reserva não responder, por enquanto uma VPN só durante o login do FiveM ajuda: desligue depois e conecte-se ao COLDZ."
+      }
+    },
+    {
       "id": "update-2026-11-18-alpha50",
       "date": "2026-11-18",
       "pinned": true,
