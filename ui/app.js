@@ -379,6 +379,16 @@
   }
   function renderSettings() {
     if ($("settings").hidden) return;
+    $("pref-tray").checked = !!prefs.tray;
+  }
+  // 0.5.0: «Сворачивать в трей»; the tray menu speaks the window's language
+  let prefs = { tray: false };
+  async function setTray(on) {
+    try { prefs = (await invoke("set_tray", { on, open: t("tray_open"), quit: t("tray_quit") })) || prefs; } catch (e) { console.warn("tray:", e); }
+    renderSettings();
+  }
+  function minimizeWindow() {
+    invoke("minimize_window").catch(() => appWindow.minimize().catch(() => {}));
   }
 
   async function refreshFivem() {
@@ -684,7 +694,7 @@
         showFivemMessage("fivem_starting", 15000);
       } else {
         showFivemMessage(action === "passed" ? "launched_passed" : "launched", 10000);
-        setTimeout(() => appWindow.minimize().catch(() => {}), 2500);
+        setTimeout(minimizeWindow, 2500);
       }
     } catch (err) {
       if (err === "fivem_missing") {
@@ -891,8 +901,9 @@
     lang = detectLang();
     applyLang();
 
-    $("lang").onchange = (e) => { lang = e.target.value; storageSet("lang", lang); applyLang(); };
-    $("btn-min").onclick = () => appWindow.minimize();
+    $("lang").onchange = (e) => { lang = e.target.value; storageSet("lang", lang); applyLang(); if (prefs.tray) setTray(true); };
+    $("btn-min").onclick = minimizeWindow;
+    $("pref-tray").onchange = (e) => setTray(e.target.checked);
     $("btn-max").onclick = () => appWindow.toggleMaximize();
     $("btn-close").onclick = () => appWindow.close();
     $("play").onclick = play;
@@ -932,6 +943,9 @@
     cfg = await invoke("get_config");
     $("version").textContent = "v" + cfg.version;
     try { portable = !!(await invoke("is_portable")); } catch { portable = false; }
+    try { prefs = (await invoke("get_prefs")) || prefs; } catch { /* first start */ }
+    // the tray icon comes back with the launcher (labels in the current language)
+    if (prefs.tray) setTray(true);
     $("max-players").textContent = cfg.maxPlayers;
     $("email").textContent = cfg.ownerEmail;
     $("email").onclick = (e) => { e.preventDefault(); openExternal("mailto:" + cfg.ownerEmail); };
@@ -1008,6 +1022,7 @@
       detect_fivem: { installed: q.get("fivem") !== "0" },
       // 0.5.0: &portable=1 — the portable zip (with ?update=1: «download the new version»)
       is_portable: q.get("portable") === "1",
+      get_prefs: { tray: q.get("tray") === "1" },
       server_status: q.get("address") === "0"
         ? { online: false, players: 0, maxPlayers: 48, pingMs: null, address: "" }
         : { online: true, players: 12, maxPlayers: 48, pingMs: 34, address: "203.0.113.10:30120", route: null },
@@ -1104,6 +1119,8 @@
       // 0.5.0: ?hint=fixup|low_disk|two_gta|onedrive|slow_disk|crash — the line after a FiveM crash; &card=report —
       // the support report card, &card=settings — the settings card
       // 0.5.0: ?restart=<minutes> — a restart announced (1 = the card on «Играть»); ?spark=0 — no online graph
+      if (cmd === "set_tray") return { tray: !!(args && args.on) };
+      if (cmd === "minimize_window") return null;
       if (cmd === "server_info") {
         const m = q.get("restart");
         const now = Math.floor(Date.now() / 1000);

@@ -80,6 +80,10 @@ pub struct Settings {
     /// 0.4.0: the reserve route for the FiveM sign-in (signin.rs): "on" — the player turned it on (the launcher
     /// turns it on again at start while the sign-in hosts are cut), "" or "off" — not in use.
     pub signin_route: String,
+    /// 0.5.0: the window's size and place at the last close (window.rs).
+    pub window: Option<crate::window::Geometry>,
+    /// 0.5.0: «Сворачивать в трей»: minimize hides the window to the tray icon next to the clock.
+    pub tray: bool,
 }
 
 pub fn load(path: &Path) -> Settings {
@@ -204,7 +208,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("coldz-nick-test-{}", std::process::id()));
         let path = dir.join("settings.json");
         assert_eq!(load(&path), Settings::default());
-        let s = Settings { nick: "Снег".into(), launcher_id: new_launcher_id(), fivem_path: r"D:\Игры\FiveM\FiveM.exe".into(), last_route: "177.3.198.34:30120".into(), signin_route: "on".into() };
+        let s = Settings { nick: "Снег".into(), launcher_id: new_launcher_id(), fivem_path: r"D:\Игры\FiveM\FiveM.exe".into(), last_route: "177.3.198.34:30120".into(), signin_route: "on".into(), window: Some(crate::window::Geometry { x: 10.0, y: 20.0, w: 1200.0, h: 700.0, maximized: false }), tray: true };
         save(&path, &s).unwrap();
         assert_eq!(load(&path), s);
         assert!(std::fs::read_to_string(&path).unwrap().contains("\"fivemPath\""));

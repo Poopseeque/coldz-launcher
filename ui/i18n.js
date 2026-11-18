@@ -158,7 +158,10 @@ window.I18N = {
     unit_mb: "МБ",
     update_ready: "Вышла версия {v}. Она уже скачана и поставится сама, когда вы закроете лаунчер.",
     update_portable: "Вышла версия {v}. Это портативная версия: скачайте новую и распакуйте вместо этой.",
-    update_download: "Скачать"
+    update_download: "Скачать",
+    pref_tray: "Сворачивать в трей (значок у часов). Окно откроется по щелчку на значке.",
+    tray_open: "Открыть COLDZ",
+    tray_quit: "Выйти"
   },
   en: {
     lead: "Winter never ends. Find warmth, food and ammo before the dead or the living find you.",
@@ -308,7 +311,10 @@ window.I18N = {
     unit_mb: "MB",
     update_ready: "Version {v} is out. It is already downloaded and installs itself when you close the launcher.",
     update_portable: "Version {v} is out. This is the portable version: download the new one and unpack it over this one.",
-    update_download: "Download"
+    update_download: "Download",
+    pref_tray: "Minimize to the tray (the icon by the clock). Click the icon to open the window.",
+    tray_open: "Open COLDZ",
+    tray_quit: "Quit"
   },
   es: {
     lead: "El invierno no termina. Busca calor, comida y munición antes de que te encuentren los muertos o los vivos.",
@@ -458,7 +464,10 @@ window.I18N = {
     unit_mb: "MB",
     update_ready: "Salió la versión {v}. Ya está descargada y se instalará sola al cerrar el lanzador.",
     update_portable: "Salió la versión {v}. Esta es la versión portátil: descarga la nueva y descomprímela en lugar de esta.",
-    update_download: "Descargar"
+    update_download: "Descargar",
+    pref_tray: "Minimizar a la bandeja (el icono junto al reloj). Haz clic en el icono para abrir la ventana.",
+    tray_open: "Abrir COLDZ",
+    tray_quit: "Salir"
   },
   "pt-BR": {
     lead: "O inverno não acaba. Encontre calor, comida e munição antes que os mortos ou os vivos encontrem você.",
@@ -608,6 +617,9 @@ window.I18N = {
     unit_mb: "MB",
     update_ready: "Saiu a versão {v}. Ela já foi baixada e será instalada sozinha quando você fechar o launcher.",
     update_portable: "Saiu a versão {v}. Esta é a versão portátil: baixe a nova e descompacte no lugar desta.",
-    update_download: "Baixar"
+    update_download: "Baixar",
+    pref_tray: "Minimizar para a bandeja (o ícone perto do relógio). Clique no ícone para abrir a janela.",
+    tray_open: "Abrir COLDZ",
+    tray_quit: "Sair"
   }
 };

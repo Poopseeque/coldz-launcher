@@ -24,6 +24,7 @@ mod running;
 mod signin;
 mod support;
 mod tunnel;
+mod window;
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -1585,6 +1586,152 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
     app.restart();
 }
 
+// ---------------------------------------------------------------- window: size, place, tray (0.5.0, window.rs)
+
+/// Work areas of the monitors in logical pixels, the main monitor first.
+fn work_areas(w: &tauri::WebviewWindow) -> Vec<window::Area> {
+    let area = |m: &tauri::Monitor| {
+        let s = m.scale_factor().max(0.5);
+        let r = m.work_area();
+        window::Area { x: r.position.x as f64 / s, y: r.position.y as f64 / s, w: r.size.width as f64 / s, h: r.size.height as f64 / s }
+    };
+    let mut out: Vec<window::Area> = Vec::new();
+    if let Ok(Some(m)) = w.primary_monitor() {
+        out.push(area(&m));
+    }
+    for m in w.available_monitors().unwrap_or_default() {
+        let a = area(&m);
+        if !out.contains(&a) {
+            out.push(a);
+        }
+    }
+    out
+}
+
+/// At start: the saved place (or a size that fits the screen), then the window is shown (it starts hidden in
+/// tauri.conf.json so it does not jump). The window is shown whatever happens here.
+fn restore_window(app: &AppHandle) {
+    let Some(w) = app.get_webview_window("main") else { return };
+    let saved = settings_path(app).map(|p| nick::load(&p).window).unwrap_or(None);
+    let p = window::place(saved, &work_areas(&w));
+    let _ = w.set_size(tauri::LogicalSize::new(p.size.0, p.size.1));
+    match p.pos {
+        Some((x, y)) => {
+            let _ = w.set_position(tauri::LogicalPosition::new(x, y));
+        }
+        None => {
+            let _ = w.center();
+        }
+    }
+    if p.maximized {
+        let _ = w.maximize();
+    }
+    let _ = w.show();
+    let _ = w.set_focus();
+}
+
+/// When the window closes: its size and place for the next start (not while minimized; maximized keeps the size it
+/// had before).
+fn save_window(app: &AppHandle) {
+    let Some(w) = app.get_webview_window("main") else { return };
+    if w.is_minimized().unwrap_or(false) || !w.is_visible().unwrap_or(true) {
+        return;
+    }
+    let maximized = w.is_maximized().unwrap_or(false);
+    let s = w.scale_factor().unwrap_or(1.0).max(0.5);
+    let (pos, size) = (w.outer_position(), w.inner_size());
+    let _ = update_settings(app, |st| {
+        let old = st.window.unwrap_or_default();
+        st.window = Some(match (maximized, pos, size) {
+            (false, Ok(pos), Ok(size)) => window::Geometry {
+                x: pos.x as f64 / s,
+                y: pos.y as f64 / s,
+                w: size.width as f64 / s,
+                h: size.height as f64 / s,
+                maximized: false,
+            },
+            _ => window::Geometry { maximized, ..old },
+        });
+    });
+}
+
+const TRAY_ID: &str = "coldz";
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Prefs {
+    tray: bool,
+}
+
+#[tauri::command]
+fn get_prefs(app: AppHandle) -> Prefs {
+    Prefs { tray: settings_path(&app).map(|p| nick::load(&p).tray).unwrap_or(false) }
+}
+
+/// The tray icon with its menu («Открыть», «Выйти» in the window's language); a left click opens the window.
+fn ensure_tray(app: &AppHandle, open: &str, quit: &str) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem};
+    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+    let menu = Menu::with_items(
+        app,
+        &[&MenuItem::with_id(app, "open", open, true, None::<&str>)?, &MenuItem::with_id(app, "quit", quit, true, None::<&str>)?],
+    )?;
+    if let Some(t) = app.tray_by_id(TRAY_ID) {
+        return t.set_menu(Some(menu));
+    }
+    let mut b = TrayIconBuilder::with_id(TRAY_ID).tooltip("COLDZ").menu(&menu).show_menu_on_left_click(false);
+    if let Some(icon) = app.default_window_icon() {
+        b = b.icon(icon.clone());
+    }
+    b.on_menu_event(|app, e| match e.id().as_ref() {
+        "open" => show_main(app),
+        "quit" => {
+            save_window(app);
+            app.exit(0);
+        }
+        _ => {}
+    })
+    .on_tray_icon_event(|tray, e| {
+        if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = e {
+            show_main(tray.app_handle());
+        }
+    })
+    .build(app)?;
+    Ok(())
+}
+
+fn show_main(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+}
+
+/// «Сворачивать в трей» in «Настройки»: saved in settings.json; the icon appears or goes at once.
+#[tauri::command]
+fn set_tray(app: AppHandle, on: bool, open: String, quit: String) -> Prefs {
+    let _ = update_settings(&app, |s| s.tray = on);
+    if on {
+        let _ = ensure_tray(&app, &open, &quit);
+    } else if let Some(t) = app.remove_tray_by_id(TRAY_ID) {
+        drop(t);
+    }
+    Prefs { tray: on }
+}
+
+/// The minimize button and the auto-minimize after «Играть»: to the tray when it is on, else the taskbar.
+#[tauri::command]
+fn minimize_window(app: AppHandle) {
+    let Some(w) = app.get_webview_window("main") else { return };
+    let tray = settings_path(&app).map(|p| nick::load(&p).tray).unwrap_or(false);
+    if tray && app.tray_by_id(TRAY_ID).is_some() {
+        let _ = w.hide();
+    } else {
+        let _ = w.minimize();
+    }
+}
+
 // ---------------------------------------------------------------- app
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1593,10 +1740,8 @@ pub fn run() {
     let _ = rustls::crypto::ring::default_provider().install_default();
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.unminimize();
-                let _ = w.set_focus();
-            }
+            // 0.5.0: also out of the tray
+            show_main(app);
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -1610,6 +1755,8 @@ pub fn run() {
             // 0.4.0: a sign-in route block left in the hosts file from the last run (signin_resume)
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move { signin_resume(handle).await });
+            // 0.5.0: the saved size and place (or one that fits a small screen), then the window shows
+            restore_window(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1628,6 +1775,9 @@ pub fn run() {
             check_update,
             update_ready,
             is_portable,
+            get_prefs,
+            set_tray,
+            minimize_window,
             install_update,
             signin_status,
             signin_enable,
@@ -1640,6 +1790,10 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building COLDZ launcher")
         .run(|app, event| {
+            // 0.5.0: the window's size and place for the next start
+            if let tauri::RunEvent::WindowEvent { event: tauri::WindowEvent::CloseRequested { .. }, .. } = &event {
+                save_window(app);
+            }
             // 0.4.0: the hosts block must not outlive the forwarder (signin.rs)
             if let tauri::RunEvent::Exit = event {
                 signin_cleanup(app);
