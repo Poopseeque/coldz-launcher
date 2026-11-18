@@ -44,7 +44,16 @@
         ]
       }
     ],
-    "tunnels": []
+    "tunnels": [
+      {
+        "address": "177.3.198.34:8443",
+        "sha256": "08ad3a40823e785f8aaeb5870a8ef54b4f2961eb4d91e8a54d0bc06bb80c1bec"
+      },
+      {
+        "address": "46.247.40.34:8443",
+        "sha256": "aa1bbb5283c14d9278d5704cfb91ab92a80318d0befe31b2898f3515926ebb85"
+      }
+    ]
   },
   "maxPlayers": 48,
   "ownerEmail": "aaenlly@gmail.com",
