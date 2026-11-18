@@ -380,10 +380,11 @@
     // news.json has no sign-in setup
     const si = r && r.signin;
     if (si) {
-      for (const g of si.groups) {
-        if (running) line(t("svc_signin"), "wait", "", "netlist__server");
-        else line(t("svc_signin"), g.ok ? "ok" : "fail", t(g.ok ? (si.active ? "net_route_on" : "net_st_ok") : "net_st_fail"), "netlist__server");
-      }
+      si.groups.forEach((g, i) => {
+        const name = t(g.id === "cfx" ? "svc_signin_cfx" : "svc_signin");
+        if (running) line(name, "wait", "", i === 0 ? "netlist__server" : null);
+        else line(name, g.ok ? "ok" : "fail", t(g.ok ? (si.active ? "net_route_on" : "net_st_ok") : "net_st_fail"), i === 0 ? "netlist__server" : null);
+      });
       if (si.tunnel) {
         if (running) line(t("svc_signin_route"), "wait", "");
         else if (si.active) line(t("svc_signin_route"), "ok", t("net_route_on"));
@@ -399,6 +400,12 @@
       state = "checking";
     } else if (!r) {
       text = t("net_failed");
+    } else if (signinBlocked(r) && r.verdict !== "offline") {
+      // 0.4.0: the sign-in is cut; the route can be turned on when a relay answers
+      text = t(r.signin.tunnel && r.signin.tunnel.ok ? "net_signin" : "net_signin_noroute");
+    } else if (r.verdict === "ok" && r.signin && r.signin.active) {
+      text = t(signinWorks(r) ? "net_signin_active" : "net_signin_active_bad");
+      state = signinWorks(r) ? "ok" : "bad";
     } else if (r.verdict === "ok") {
       text = t(r.server === true ? "net_ok" : r.reserve === true ? "net_ok_reserve" : "net_ok_fivem");
       state = "ok";
@@ -407,9 +414,6 @@
       hint = t("net_advice");
     } else if (r.verdict === "cfx_blocked" && r.blocking) {
       text = t("net_cfx");               // the text agreed with Alexander: it already says what to do
-    } else if (signinBlocked(r)) {
-      // 0.4.0: the sign-in is cut; the route can be turned on when a relay answers
-      text = t(r.signin.tunnel && r.signin.tunnel.ok ? "net_signin" : "net_signin_noroute");
     } else if (r.signin && r.signin.active) {
       text = t(signinWorks(r) ? "net_signin_active" : "net_signin_active_bad");
       state = signinWorks(r) ? "ok" : "bad";
