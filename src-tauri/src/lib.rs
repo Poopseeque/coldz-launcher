@@ -742,21 +742,27 @@ async fn signin_check() -> Option<netcheck::SigninReport> {
             return None;
         }
         let started = Instant::now();
-        let futs: Vec<_> = setup.tunnels.iter().map(|t| tunnel::probe(t, &probe_host)).collect();
+        let futs: Vec<_> = setup.tunnels.iter().map(|t| tunnel::probe_full(t, &probe_host)).collect();
         let answers = join_all(futs).await;
         let ms = started.elapsed().as_millis().min(u32::MAX as u128) as u32;
-        let probe = |i: usize, ok: bool, status: Option<u16>, problem: Option<&'static str>| netcheck::TunnelProbe {
+        let probe = |i: usize, ok: bool, status: Option<u16>, bytes: u64, problem: Option<&'static str>| netcheck::TunnelProbe {
             address: setup.tunnels[i].address.clone(),
             ok,
             status,
+            bytes,
             problem,
             ms,
         };
-        if let Some(i) = answers.iter().position(|a| a.is_ok()) {
-            return Some((Some(setup.tunnels[i].clone()), probe(i, true, answers[i].ok(), None)));
+        // the first tunnel that carries data wins; a tunnel that answers but is «frozen» counts as not working
+        if let Some(i) = answers.iter().position(|a| matches!(a, Ok(x) if x.ok())) {
+            let a = answers[i].as_ref().ok().copied().unwrap_or(tunnel::Answer { status: 0, bytes: 0 });
+            return Some((Some(setup.tunnels[i].clone()), probe(i, true, Some(a.status), a.bytes, None)));
         }
-        let e = answers.first().and_then(|a| a.as_ref().err().copied()).unwrap_or("relay");
-        Some((None, probe(0, false, None, Some(e))))
+        let (i, status, bytes, e) = match answers.iter().enumerate().find(|(_, a)| a.is_ok()) {
+            Some((i, Ok(a))) => (i, Some(a.status), a.bytes, "slow"),
+            _ => (0, None, 0, answers.first().and_then(|a| a.as_ref().err().copied()).unwrap_or("relay")),
+        };
+        Some((None, probe(i, false, status, bytes, Some(e))))
     };
     let (groups, tunnel) = tokio::join!(groups, tunnels);
     let active = { signin_lock().active };
@@ -836,9 +842,9 @@ async fn pick_tunnel(setup: &signin::Setup) -> Option<signin::Tunnel> {
         return Some(t);
     }
     let host = check_host(setup)?;
-    let futs: Vec<_> = setup.tunnels.iter().map(|t| tunnel::probe(t, &host)).collect();
+    let futs: Vec<_> = setup.tunnels.iter().map(|t| tunnel::probe_full(t, &host)).collect();
     let answers = join_all(futs).await;
-    let picked = answers.iter().position(|a| a.is_ok()).map(|i| setup.tunnels[i].clone());
+    let picked = answers.iter().position(|a| matches!(a, Ok(x) if x.ok())).map(|i| setup.tunnels[i].clone());
     signin_lock().tunnel_ok = picked.clone();
     picked
 }

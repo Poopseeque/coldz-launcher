@@ -22,16 +22,12 @@
 ## Установка (на каждом релее, root)
 
 ```
-scp -r relay/tunnel root@177.3.198.34:/root/tunnel      # Варшава (root по ключу aaro_ed25519)
-ssh root@177.3.198.34 'sh /root/tunnel/install_tunnel.sh'
+scp -r relay/tunnel <релей>:~/tunnel
+ssh <релей> 'sudo sh ~/tunnel/install_tunnel.sh'
 ```
 
-Алматы (46.247.40.34, пользователь `ubuntu`, `sudo`; там ufw активен, скрипт сам откроет 8443):
-
-```
-scp -r relay/tunnel ubuntu@46.247.40.34:/home/ubuntu/tunnel
-ssh ubuntu@46.247.40.34 'sudo sh /home/ubuntu/tunnel/install_tunnel.sh'
-```
+Доступ к релеям (пользователи, ключи) описан в закрытых заметках главной сессии (`F:\COLDZ-work\relay_1611\README.md`),
+в этот открытый репозиторий их не вносить.
 
 Скрипт в конце печатает готовую строку вида
 `{ "address": "177.3.198.34:8443", "sha256": "…64 hex…" }` — её вставить в `news/news.json` → `signin.tunnels`

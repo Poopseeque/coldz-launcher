@@ -854,7 +854,7 @@
             { id: "rockstar", host: "scui.rockstargames.com", ok: !signinCut && (!signinOn || tunnelOk), problem: signinCut ? "connect" : null, status: signinCut ? null : 403, ms: 300 },
             { id: "cfx", host: "lambda.fivem.net", ok: true, problem: null, status: 200, ms: 140 }
           ],
-          tunnel: { address: "198.51.100.20:8443", ok: tunnelOk, status: tunnelOk ? 403 : null, problem: tunnelOk ? null : "relay", ms: 420 },
+          tunnel: { address: "198.51.100.20:8443", ok: tunnelOk, status: tunnelOk ? 403 : null, bytes: tunnelOk ? 99000 : 0, problem: tunnelOk ? null : "relay", ms: 420 },
           active: signinOn,
           blocked: signinCut
         };

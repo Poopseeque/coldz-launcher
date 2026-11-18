@@ -127,8 +127,11 @@ pub struct GroupProbe {
 #[serde(rename_all = "camelCase")]
 pub struct TunnelProbe {
     pub address: String,
+    /// The relay answers and the FiveM build manifest came through it past the throttling mark (tunnel.rs).
     pub ok: bool,
     pub status: Option<u16>,
+    /// How much of the manifest came through: below `STALL_BYTES` the tunnel is «frozen» (problem "slow").
+    pub bytes: u64,
     pub problem: Option<&'static str>,
     pub ms: u32,
 }
@@ -247,7 +250,7 @@ fn left(deadline: Instant) -> Duration {
     deadline.saturating_duration_since(Instant::now())
 }
 
-fn unix_now() -> u64 {
+pub(crate) fn unix_now() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -497,10 +500,11 @@ pub fn log_lines(r: &Report) -> (String, Vec<String>) {
         }
         match &s.tunnel {
             Some(t) => lines.push(format!(
-                "резервный маршрут входа {}: {}{}, {} мс",
+                "резервный маршрут входа {}: {}{}, {} байт, {} мс",
                 t.address,
                 t.problem.unwrap_or("ok"),
                 t.status.map(|s| format!(" (HTTP {s})")).unwrap_or_default(),
+                t.bytes,
                 t.ms
             )),
             None => lines.push("резервный маршрут входа: не настроен".into()),

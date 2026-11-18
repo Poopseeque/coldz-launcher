@@ -265,6 +265,101 @@ async fn pipe(mut local: TcpStream, f: &Forward) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Where the volume check reads from through the tunnel: FiveM's own update storage (allowed on the relay). Since
+/// November 2026 some Russian providers «freeze» connections to foreign networks after a few dozen packets, so a tunnel
+/// that answers one small page can still be useless: the check reads the current build manifest (~99 KB) through it.
+pub const VOLUME_HOST: &str = "cfx-content.akamaized.net";
+const VOLUME_HEADS: &str = "/updates/heads/fivereborn/production";
+
+/// The answer of one tunnel: the HTTP status of `HEAD /` at the sign-in host and how many bytes of the manifest came
+/// through within the time (`ok` only when the bytes are past the throttling mark, netcheck `STALL_BYTES`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Answer {
+    pub status: u16,
+    pub bytes: u64,
+}
+
+impl Answer {
+    pub fn ok(&self) -> bool {
+        self.bytes >= crate::netcheck::STALL_BYTES
+    }
+}
+
+/// One HTTP/1.1 request through the tunnel with its own inner TLS to `host`: returns the status, the headers (lower
+/// case names) and how many body bytes came before `want` was reached or the stream ended.
+async fn request(tunnel: &Tunnel, host: &str, path: &str, head_only: bool, want: u64) -> Result<(u16, Vec<(String, String)>, u64), &'static str> {
+    let outer = open(tunnel).await.map_err(|_| "relay")?;
+    let name = server_name(host).ok_or("host")?;
+    let connector = TlsConnector::from(client_config(Arc::new(AnyCert)));
+    let mut inner = connector.connect(name, outer).await.map_err(|_| "host_tls")?;
+    let req = format!(
+        "{} {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: COLDZ-Launcher/{}\r\nConnection: close\r\n\r\n",
+        if head_only { "HEAD" } else { "GET" },
+        env!("CARGO_PKG_VERSION")
+    );
+    inner.write_all(req.as_bytes()).await.map_err(|_| "write")?;
+    // the head: up to the empty line
+    let mut buf: Vec<u8> = Vec::with_capacity(4096);
+    let mut chunk = [0u8; 4096];
+    let head_end = loop {
+        if let Some(i) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+            break i + 4;
+        }
+        if buf.len() > 64 * 1024 {
+            return Err("http");
+        }
+        match inner.read(&mut chunk).await {
+            Ok(0) => return Err("http"),
+            Ok(n) => buf.extend_from_slice(&chunk[..n]),
+            Err(_) => return Err("read"),
+        }
+    };
+    let head = String::from_utf8_lossy(&buf[..head_end]).into_owned();
+    let mut lines = head.split("\r\n");
+    let status = lines
+        .next()
+        .and_then(|l| l.strip_prefix("HTTP/1."))
+        .and_then(|s| s.get(2..5))
+        .and_then(|s| s.parse::<u16>().ok())
+        .ok_or("http")?;
+    let headers: Vec<(String, String)> = lines
+        .filter_map(|l| l.split_once(':'))
+        .map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().to_string()))
+        .collect();
+    let mut bytes = (buf.len() - head_end) as u64;
+    if !head_only {
+        while bytes < want {
+            match inner.read(&mut chunk).await {
+                Ok(0) => break,
+                Ok(n) => bytes += n as u64,
+                Err(_) => break,
+            }
+        }
+    }
+    let _ = inner.shutdown().await;
+    Ok((status, headers, bytes))
+}
+
+/// Asks `host` through the tunnel (`HEAD /`, any status = the path works) and then reads the FiveM build manifest
+/// through it (`VOLUME_HOST`): the answer says whether the tunnel really carries data, not just one small page.
+/// Err: the relay does not answer, its certificate is wrong, or the host did not answer through it in time.
+pub async fn probe_full(tunnel: &Tunnel, host: &str) -> Result<Answer, &'static str> {
+    let run = async {
+        let (status, _, _) = request(tunnel, host, "/", true, 0).await?;
+        let path = format!("{VOLUME_HEADS}?time={}", crate::netcheck::unix_now());
+        let (_, headers, _) = request(tunnel, VOLUME_HOST, &path, true, 0).await?;
+        let manifest = headers
+            .iter()
+            .find(|(k, _)| k == "x-amz-meta-branch-manifest")
+            .and_then(|(_, v)| crate::netcheck::object_url(v))
+            .and_then(|u| u.strip_prefix("https://cfx-content.akamaized.net").map(str::to_string))
+            .ok_or("manifest")?;
+        let (_, _, bytes) = request(tunnel, VOLUME_HOST, &manifest, false, crate::netcheck::VOLUME_BYTES).await?;
+        Ok(Answer { status, bytes })
+    };
+    tokio::time::timeout(PROBE_TIMEOUT, run).await.map_err(|_| "timeout")?
+}
+
 /// Asks `host` through the tunnel: the HTTP status of `HEAD /` (any status = the path works). Err: the relay does
 /// not answer, its certificate is wrong, or the host did not answer through it within `PROBE_TIMEOUT`.
 pub async fn probe(tunnel: &Tunnel, host: &str) -> Result<u16, &'static str> {
@@ -465,6 +560,55 @@ pub(crate) mod tests {
                 eprintln!("{host} through {}: {r:?}", t.address);
                 assert!(r.is_ok(), "{host}: {r:?}");
             }
+            let a = probe_full(&t, "scui.rockstargames.com").await;
+            eprintln!("volume through {}: {a:?}", t.address);
+            assert!(matches!(a, Ok(x) if x.ok()), "{a:?}");
+        });
+    }
+
+    /// A "real host" behind the mock relay that answers like Cfx.re: the heads with a manifest header, the manifest
+    /// of `size` bytes, 403 to anything else.
+    async fn cfx_like(acc: tokio_rustls::TlsAcceptor, outer: tokio_rustls::server::TlsStream<TcpStream>, size: usize) {
+        let Ok(mut inner) = acc.accept(outer).await else { return };
+        let mut buf = vec![0u8; 2048];
+        let n = inner.read(&mut buf).await.unwrap_or(0);
+        let req = String::from_utf8_lossy(&buf[..n]).into_owned();
+        let manifest = "ab".repeat(20);
+        if req.contains("/updates/heads/") {
+            let _ = inner
+                .write_all(format!("HTTP/1.1 200 OK\r\nx-amz-meta-branch-manifest: {manifest}\r\nContent-Length: 0\r\n\r\n").as_bytes())
+                .await;
+        } else if req.contains(&format!("/updates/ab/ab/{manifest}")) {
+            let body = vec![b'x'; size];
+            let _ = inner.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {size}\r\n\r\n").as_bytes()).await;
+            let _ = inner.write_all(&body).await;
+        } else {
+            let _ = inner.write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n").await;
+        }
+        let _ = inner.shutdown().await;
+    }
+
+    #[test]
+    fn probe_full_needs_volume_not_just_a_status() {
+        rt().block_on(async {
+            // a tunnel that carries data: the manifest comes through whole
+            let acc = acceptor();
+            let (addr, t1) = relay(move |outer| cfx_like(acc.clone(), outer, 70 * 1024)).await;
+            let tunnel = Tunnel { address: addr, sha256: hex(&fingerprint(CERT)) };
+            let a = probe_full(&tunnel, "scui.rockstargames.com").await.unwrap();
+            assert_eq!(a.status, 403);
+            assert!(a.bytes >= crate::netcheck::VOLUME_BYTES, "{a:?}");
+            assert!(a.ok());
+            t1.abort();
+
+            // a «frozen» tunnel: the status answers, the manifest stops after 10 KB: not ok
+            let acc = acceptor();
+            let (addr, t2) = relay(move |outer| cfx_like(acc.clone(), outer, 10 * 1024)).await;
+            let tunnel = Tunnel { address: addr, sha256: hex(&fingerprint(CERT)) };
+            let a = probe_full(&tunnel, "scui.rockstargames.com").await.unwrap();
+            assert_eq!(a.status, 403);
+            assert!(!a.ok(), "{a:?}");
+            t2.abort();
         });
     }
 
