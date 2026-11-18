@@ -461,7 +461,9 @@
     btn.disabled = true;
     btn.classList.add("is-busy");
     // 0) Connection to Cfx.re and COLDZ, in parallel with the nick (skipped after the card or a fresh OK check).
-    const fresh = net.report && net.report.verdict === "ok" && Date.now() - net.at < NET_FRESH_MS;
+    // 0.4.0: a fresh check with the sign-in cut is not "fine": the card comes up first (Alexander 18.11: on «Играть»
+    // the window shows what to fix before FiveM starts)
+    const fresh = net.report && net.report.verdict === "ok" && !signinBlocked(net.report) && Date.now() - net.at < NET_FRESH_MS;
     const netCheck = fromNet || fresh ? Promise.resolve(null) : runNetCheck();
     label.textContent = t(fromNet || fresh ? "launching" : "net_checking_short");
     // 0.3.5) The route: the main server answers within ~3 s, or the first reserve route that answers
