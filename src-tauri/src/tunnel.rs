@@ -449,6 +449,25 @@ pub(crate) mod tests {
         });
     }
 
+    /// A real relay: `COLDZ_TUNNEL=177.3.198.34:8443 COLDZ_TUNNEL_SHA256=<64 hex> cargo test real_tunnel -- --ignored --nocapture`
+    /// (relay/tunnel/README.md). Asks scui.rockstargames.com through it: Rockstar answers 403 to a bare HEAD.
+    #[test]
+    #[ignore]
+    fn real_tunnel() {
+        let (Ok(address), Ok(sha256)) = (std::env::var("COLDZ_TUNNEL"), std::env::var("COLDZ_TUNNEL_SHA256")) else {
+            eprintln!("COLDZ_TUNNEL and COLDZ_TUNNEL_SHA256 are not set");
+            return;
+        };
+        rt().block_on(async {
+            let t = Tunnel { address, sha256 };
+            for host in ["scui.rockstargames.com", "rgl-prod.ros.rockstargames.com", "lambda.fivem.net"] {
+                let r = probe(&t, host).await;
+                eprintln!("{host} through {}: {r:?}", t.address);
+                assert!(r.is_ok(), "{host}: {r:?}");
+            }
+        });
+    }
+
     #[test]
     fn probe_reads_the_status_through_two_layers() {
         rt().block_on(async {
