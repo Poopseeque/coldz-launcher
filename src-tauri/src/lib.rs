@@ -739,38 +739,40 @@ async fn signin_check() -> Option<netcheck::SigninReport> {
     };
     let tunnels = async {
         if setup.tunnels.is_empty() {
-            return None;
+            return (None, None, Vec::new());
         }
-        let started = Instant::now();
-        let futs: Vec<_> = setup.tunnels.iter().map(|t| tunnel::probe_full(t, &probe_host)).collect();
-        let answers = join_all(futs).await;
-        let ms = started.elapsed().as_millis().min(u32::MAX as u128) as u32;
-        let probe = |i: usize, ok: bool, status: Option<u16>, bytes: u64, problem: Option<&'static str>| netcheck::TunnelProbe {
-            address: setup.tunnels[i].address.clone(),
-            ok,
-            status,
-            bytes,
-            problem,
-            ms,
-        };
-        // the first tunnel that carries data wins; a tunnel that answers but is «frozen» counts as not working
-        if let Some(i) = answers.iter().position(|a| matches!(a, Ok(x) if x.ok())) {
-            let a = answers[i].as_ref().ok().copied().unwrap_or(tunnel::Answer { status: 0, bytes: 0 });
-            return Some((Some(setup.tunnels[i].clone()), probe(i, true, Some(a.status), a.bytes, None)));
+        // 0.5.0: every relay traced (tunnel.rs `probe_traced`): number, why it stopped, bytes, its own time
+        let futs: Vec<_> = setup.tunnels.iter().map(|t| tunnel::probe_traced(t, &probe_host, tunnel::PROBE_TIMEOUT)).collect();
+        let traces = join_all(futs).await;
+        let all: Vec<netcheck::TunnelProbe> = traces
+            .iter()
+            .enumerate()
+            .map(|(i, tr)| {
+                let ok = matches!(tr.answer(), Ok(a) if a.ok());
+                netcheck::TunnelProbe {
+                    index: i + 1,
+                    address: setup.tunnels[i].address.clone(),
+                    ok,
+                    status: tr.status,
+                    bytes: tr.bytes,
+                    // the host answered but the volume did not come: the tunnel is «frozen»
+                    problem: if ok { None } else { Some(tr.stop.unwrap_or("slow")) },
+                    ms: tr.ms,
+                }
+            })
+            .collect();
+        // the first tunnel that carries data wins; else the one that came furthest, for the window
+        if let Some(i) = all.iter().position(|p| p.ok) {
+            return (Some(setup.tunnels[i].clone()), Some(all[i].clone()), all);
         }
-        let (i, status, bytes, e) = match answers.iter().enumerate().find(|(_, a)| a.is_ok()) {
-            Some((i, Ok(a))) => (i, Some(a.status), a.bytes, "slow"),
-            _ => (0, None, 0, answers.first().and_then(|a| a.as_ref().err().copied()).unwrap_or("relay")),
-        };
-        Some((None, probe(i, false, status, bytes, Some(e))))
+        let closest = all.iter().max_by_key(|p| (p.status.is_some(), p.bytes)).cloned();
+        (None, closest, all)
     };
     let (groups, tunnel) = tokio::join!(groups, tunnels);
     let active = { signin_lock().active };
     let failed: Vec<String> = groups.iter().filter(|g| !g.ok).map(|g| g.id.clone()).collect();
-    let (tunnel_ok, tunnel) = match tunnel {
-        Some((t, p)) => (t, Some(p)),
-        None => (None, None),
-    };
+    let (tunnel_ok, tunnel, all_tunnels) = tunnel;
+    let route_stats = route_stats_line();
     {
         let mut run = signin_lock();
         run.tunnel_ok = tunnel_ok;
@@ -778,7 +780,7 @@ async fn signin_check() -> Option<netcheck::SigninReport> {
             run.failed = failed.clone();
         }
     }
-    Some(netcheck::SigninReport { blocked: !failed.is_empty() && !active, groups, tunnel, active })
+    Some(netcheck::SigninReport { blocked: !failed.is_empty() && !active, groups, tunnel, tunnels: all_tunnels, route_stats, active })
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -815,11 +817,17 @@ fn start_forwarder(tunnel: signin::Tunnel, hosts: Vec<String>) -> Result<std::ne
     run.forward = None;
     let (std_listener, ip) = tunnel::bind_local().map_err(|_| "port_busy".to_string())?;
     let listener = tokio::net::TcpListener::from_std(std_listener).map_err(|_| "port_busy".to_string())?;
-    let forward = std::sync::Arc::new(tunnel::Forward { tunnel, hosts });
+    let forward = std::sync::Arc::new(tunnel::Forward::new(tunnel, hosts));
     run.forward = Some(forward.clone());
     run.ip = Some(ip);
     run.task = Some(tauri::async_runtime::spawn(tunnel::serve(listener, forward)));
     Ok(ip)
+}
+
+/// 0.5.0: what the running route carried (tunnel.rs `Stats`), one line for net-check.log. None: the route is off.
+fn route_stats_line() -> Option<String> {
+    let run = signin_lock();
+    run.forward.as_ref().map(|f| f.stats().line(&f.tunnel.address))
 }
 
 fn stop_forwarder() {
@@ -897,11 +905,12 @@ async fn signin_disable(app: AppHandle) -> Result<SigninStatus, String> {
         .map_err(|_| "failed".to_string())?;
     match removed {
         Ok(()) => {
+            let stats = route_stats_line();
             stop_forwarder();
             signin_lock().active = false;
             let _ = update_settings(&app, |s| s.signin_route = "off".into());
             if let Some(log) = net_log_path(&app) {
-                fivem::write_log(&log, "резервный маршрут входа выключен", &[]);
+                fivem::write_log(&log, "резервный маршрут входа выключен", &stats.into_iter().collect::<Vec<_>>());
             }
             Ok(signin_status_now())
         }
@@ -917,7 +926,11 @@ fn signin_cleanup(app: &AppHandle) {
         return;
     }
     let work = signin_work_dir(app);
+    let stats = route_stats_line();
     if hosts::request(None, &work).is_ok() {
+        if let (Some(log), Some(line)) = (net_log_path(app), stats) {
+            fivem::write_log(&log, "резервный маршрут входа выключен при выходе", &[line]);
+        }
         stop_forwarder();
         signin_lock().active = false;
         let _ = update_settings(app, |s| s.signin_route = "off".into());

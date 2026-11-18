@@ -126,13 +126,17 @@ pub struct GroupProbe {
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TunnelProbe {
+    /// 0.5.0: the relay's number in `signin.tunnels` (1, 2, ...), for the log and support.
+    pub index: usize,
     pub address: String,
     /// The relay answers and the FiveM build manifest came through it past the throttling mark (tunnel.rs).
     pub ok: bool,
     pub status: Option<u16>,
     /// How much of the manifest came through: below `STALL_BYTES` the tunnel is «frozen» (problem "slow").
     pub bytes: u64,
+    /// Why the probe stopped (tunnel.rs `Trace::stop`): relay, host_tls, read, write, http, manifest, timeout, slow.
     pub problem: Option<&'static str>,
+    /// This relay's own time.
     pub ms: u32,
 }
 
@@ -140,8 +144,13 @@ pub struct TunnelProbe {
 #[serde(rename_all = "camelCase")]
 pub struct SigninReport {
     pub groups: Vec<GroupProbe>,
-    /// None: no tunnels in news.json.
+    /// The tunnel the route uses (the first that carries data), or the one that came closest. None: no tunnels.
     pub tunnel: Option<TunnelProbe>,
+    /// 0.5.0: every relay as it answered (net-check.log: number, address, stop reason, bytes, ms).
+    #[serde(default)]
+    pub tunnels: Vec<TunnelProbe>,
+    /// 0.5.0: what the running route carried so far (tunnel.rs `Stats::line`). None: the route is off.
+    pub route_stats: Option<String>,
     /// The route is on now: the hosts file points the sign-in hosts at the launcher, which forwards them.
     pub active: bool,
     /// Some group does not answer and the route is off: FiveM will not sign in. With the route on, the groups are
@@ -498,16 +507,24 @@ pub fn log_lines(r: &Report) -> (String, Vec<String>) {
                 g.ms
             ));
         }
-        match &s.tunnel {
-            Some(t) => lines.push(format!(
-                "резервный маршрут входа {}: {}{}, {} байт, {} мс",
+        // 0.5.0: every relay with its number and why it stopped
+        for t in &s.tunnels {
+            lines.push(format!(
+                "резервный маршрут входа, релей №{} {}: {}{}, {} байт, {} мс{}",
+                t.index,
                 t.address,
                 t.problem.unwrap_or("ok"),
                 t.status.map(|s| format!(" (HTTP {s})")).unwrap_or_default(),
                 t.bytes,
-                t.ms
-            )),
-            None => lines.push("резервный маршрут входа: не настроен".into()),
+                t.ms,
+                if s.tunnel.as_ref().map_or(false, |c| c.ok && c.index == t.index) { "; выбран" } else { "" }
+            ));
+        }
+        if s.tunnels.is_empty() {
+            lines.push("резервный маршрут входа: не настроен".into());
+        }
+        if let Some(st) = &s.route_stats {
+            lines.push(st.clone());
         }
         lines.push(format!(
             "резервный маршрут входа: {}{}",
@@ -827,6 +844,41 @@ mod tests {
         let json = serde_json::to_value(&r).unwrap();
         assert_eq!(json["services"][0]["problem"], "slow");
         assert_eq!(json["services"][1]["problem"], serde_json::Value::Null);
+    }
+
+    /// 0.5.0: every relay of the sign-in route in the log, with its number and why it stopped.
+    #[test]
+    fn tunnel_lines_name_the_relay_and_the_stop() {
+        let t = |index: usize, ok: bool, problem: Option<&'static str>, bytes: u64| TunnelProbe {
+            index,
+            address: format!("10.0.0.{index}:8443"),
+            ok,
+            status: Some(403),
+            bytes,
+            problem,
+            ms: 700 + index as u32,
+        };
+        let r = Report {
+            verdict: "ok",
+            blocking: false,
+            services: vec![],
+            server: Some(true),
+            reserve: None,
+            route: None,
+            signin: Some(SigninReport {
+                groups: vec![],
+                tunnel: Some(t(2, true, None, 99_000)),
+                tunnels: vec![t(1, false, Some("timeout"), 18_000), t(2, true, None, 99_000)],
+                route_stats: Some("работа маршрута через 10.0.0.2:8443: соединений 3".into()),
+                active: true,
+                blocked: false,
+            }),
+            ms: 1,
+        };
+        let (_, lines) = log_lines(&r);
+        assert!(lines.contains(&"резервный маршрут входа, релей №1 10.0.0.1:8443: timeout (HTTP 403), 18000 байт, 701 мс".to_string()), "{lines:?}");
+        assert!(lines.contains(&"резервный маршрут входа, релей №2 10.0.0.2:8443: ok (HTTP 403), 99000 байт, 702 мс; выбран".to_string()), "{lines:?}");
+        assert!(lines.iter().any(|l| l.starts_with("работа маршрута через 10.0.0.2:8443")), "{lines:?}");
     }
 
     /// The real Cfx.re hosts from this PC (prints the report; offline machine: nothing to check).

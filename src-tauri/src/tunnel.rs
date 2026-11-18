@@ -228,10 +228,26 @@ pub fn bind_local() -> std::io::Result<(std::net::TcpListener, IpAddr)> {
 }
 
 /// What the listener forwards: the relay and the hosts it may be asked for.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Forward {
     pub tunnel: Tunnel,
     pub hosts: Vec<String>,
+    /// 0.5.0: what went through (net-check.log).
+    pub stats: std::sync::Mutex<Stats>,
+}
+
+impl Forward {
+    pub fn new(tunnel: Tunnel, hosts: Vec<String>) -> Self {
+        Forward { tunnel, hosts, stats: Default::default() }
+    }
+
+    pub fn stats(&self) -> Stats {
+        self.stats.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    fn note(&self, f: impl FnOnce(&mut Stats)) {
+        f(&mut self.stats.lock().unwrap_or_else(|e| e.into_inner()));
+    }
 }
 
 /// Forwards every connection on `listener` to the relay (see the module doc). Runs until the task is aborted.
@@ -255,13 +271,31 @@ async fn pipe(mut local: TcpStream, f: &Forward) -> std::io::Result<()> {
     let n = tokio::time::timeout(HELLO_TIMEOUT, local.peek(&mut head))
         .await
         .map_err(|_| std::io::Error::from(std::io::ErrorKind::TimedOut))??;
-    let name = sni_of(&head[..n]).ok_or_else(|| bad("no name"))?;
+    let Some(name) = sni_of(&head[..n]) else {
+        f.note(|s| s.refuse("no name"));
+        return Err(bad("no name"));
+    };
     if !f.hosts.iter().any(|h| *h == name) {
+        f.note(|s| s.refuse("not ours"));
         return Err(bad("not ours"));
     }
-    let mut remote = open(&f.tunnel).await?;
-    let _ = tokio::io::copy_bidirectional(&mut local, &mut remote).await;
+    let started = std::time::Instant::now();
+    let mut remote = match open(&f.tunnel).await {
+        Ok(r) => r,
+        Err(e) => {
+            f.note(|s| s.refuse("relay"));
+            return Err(e);
+        }
+    };
+    f.note(|s| s.connections += 1);
+    let (up, down) = tokio::io::copy_bidirectional(&mut local, &mut remote).await.unwrap_or((0, 0));
     let _ = remote.shutdown().await;
+    let ms = started.elapsed().as_millis() as u64;
+    f.note(|s| {
+        s.up += up;
+        s.down += down;
+        s.last = Some((name.clone(), up, down, ms));
+    });
     Ok(())
 }
 
@@ -285,9 +319,45 @@ impl Answer {
     }
 }
 
+/// 0.5.0: what one tunnel probe did, for net-check.log: how far it went and why it stopped. `bytes` counts the body
+/// bytes of the manifest that came through, also when the time ran out in the middle (a «frozen» tunnel).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Trace {
+    /// HTTP status of `HEAD /` at the sign-in host, None: it did not answer.
+    pub status: Option<u16>,
+    pub bytes: u64,
+    pub ms: u32,
+    /// Why the probe stopped (None: the manifest came through past the throttling mark): "relay" (no TLS connection
+    /// to the relay, or another certificate), "host_tls" (the real host did not finish its handshake through the
+    /// relay), "write" / "read" (the connection broke), "http" (not an HTTP answer), "manifest" (no build manifest in
+    /// the update heads), "timeout" (the time ran out, see `bytes`), "slow" (the manifest ended below the mark).
+    pub stop: Option<&'static str>,
+}
+
+impl Trace {
+    /// Ok once the sign-in host answered through the tunnel (`Answer::ok` then says whether the volume came too).
+    pub fn answer(&self) -> Result<Answer, &'static str> {
+        match self.status {
+            Some(status) if matches!(self.stop, None | Some("slow") | Some("timeout")) => {
+                Ok(Answer { status, bytes: self.bytes })
+            }
+            _ => Err(self.stop.unwrap_or("http")),
+        }
+    }
+}
+
 /// One HTTP/1.1 request through the tunnel with its own inner TLS to `host`: returns the status, the headers (lower
-/// case names) and how many body bytes came before `want` was reached or the stream ended.
-async fn request(tunnel: &Tunnel, host: &str, path: &str, head_only: bool, want: u64) -> Result<(u16, Vec<(String, String)>, u64), &'static str> {
+/// case names) and how many body bytes came before `want` was reached or the stream ended. Body bytes are also added
+/// to `progress` as they come, so a caller that gives up on time still knows how far it got.
+async fn request(
+    tunnel: &Tunnel,
+    host: &str,
+    path: &str,
+    head_only: bool,
+    want: u64,
+    progress: &std::sync::atomic::AtomicU64,
+) -> Result<(u16, Vec<(String, String)>, u64), &'static str> {
+    use std::sync::atomic::Ordering;
     let outer = open(tunnel).await.map_err(|_| "relay")?;
     let name = server_name(host).ok_or("host")?;
     let connector = TlsConnector::from(client_config(Arc::new(AnyCert)));
@@ -328,10 +398,14 @@ async fn request(tunnel: &Tunnel, host: &str, path: &str, head_only: bool, want:
         .collect();
     let mut bytes = (buf.len() - head_end) as u64;
     if !head_only {
+        progress.fetch_add(bytes, Ordering::Relaxed);
         while bytes < want {
             match inner.read(&mut chunk).await {
                 Ok(0) => break,
-                Ok(n) => bytes += n as u64,
+                Ok(n) => {
+                    bytes += n as u64;
+                    progress.fetch_add(n as u64, Ordering::Relaxed);
+                }
                 Err(_) => break,
             }
         }
@@ -342,26 +416,92 @@ async fn request(tunnel: &Tunnel, host: &str, path: &str, head_only: bool, want:
 
 /// Asks `host` through the tunnel (`HEAD /`, any status = the path works) and then reads the FiveM build manifest
 /// through it (`VOLUME_HOST`): the answer says whether the tunnel really carries data, not just one small page.
-/// Err: the relay does not answer, its certificate is wrong, or the host did not answer through it in time.
-pub async fn probe_full(tunnel: &Tunnel, host: &str) -> Result<Answer, &'static str> {
+/// 0.5.0: every step is traced (`Trace`), so the log says where a tunnel stopped and how many bytes came before.
+pub async fn probe_traced(tunnel: &Tunnel, host: &str, limit: Duration) -> Trace {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    let started = std::time::Instant::now();
+    let progress = AtomicU64::new(0);
+    let status = std::sync::Mutex::new(None::<u16>);
     let run = async {
-        let (status, _, _) = request(tunnel, host, "/", true, 0).await?;
+        let (st, _, _) = request(tunnel, host, "/", true, 0, &progress).await?;
+        *status.lock().unwrap_or_else(|e| e.into_inner()) = Some(st);
         let path = format!("{VOLUME_HEADS}?time={}", crate::netcheck::unix_now());
-        let (_, headers, _) = request(tunnel, VOLUME_HOST, &path, true, 0).await?;
+        let (_, headers, _) = request(tunnel, VOLUME_HOST, &path, true, 0, &progress).await?;
         let manifest = headers
             .iter()
             .find(|(k, _)| k == "x-amz-meta-branch-manifest")
             .and_then(|(_, v)| crate::netcheck::object_url(v))
             .and_then(|u| u.strip_prefix("https://cfx-content.akamaized.net").map(str::to_string))
             .ok_or("manifest")?;
-        let (_, _, bytes) = request(tunnel, VOLUME_HOST, &manifest, false, crate::netcheck::VOLUME_BYTES).await?;
-        Ok(Answer { status, bytes })
+        let (_, _, bytes) = request(tunnel, VOLUME_HOST, &manifest, false, crate::netcheck::VOLUME_BYTES, &progress).await?;
+        Ok::<u64, &'static str>(bytes)
     };
-    tokio::time::timeout(PROBE_TIMEOUT, run).await.map_err(|_| "timeout")?
+    let result = tokio::time::timeout(limit, run).await;
+    let status = *status.lock().unwrap_or_else(|e| e.into_inner());
+    let bytes = progress.load(Ordering::Relaxed);
+    let ms = started.elapsed().as_millis().min(u32::MAX as u128) as u32;
+    let stop = match result {
+        Err(_) => Some("timeout"),
+        Ok(Err(e)) => Some(e),
+        Ok(Ok(b)) if b < crate::netcheck::STALL_BYTES => Some("slow"),
+        Ok(Ok(_)) => None,
+    };
+    Trace { status, bytes, ms, stop }
 }
 
-/// Asks `host` through the tunnel: the HTTP status of `HEAD /` (any status = the path works). Err: the relay does
-/// not answer, its certificate is wrong, or the host did not answer through it within `PROBE_TIMEOUT`.
+/// `probe_traced` with the usual time (`PROBE_TIMEOUT`). Ok: the host answered through the tunnel (see `Answer::ok`
+/// for the volume). Err: the relay does not answer, its certificate is wrong, or the host did not answer in time.
+pub async fn probe_full(tunnel: &Tunnel, host: &str) -> Result<Answer, &'static str> {
+    probe_traced(tunnel, host, PROBE_TIMEOUT).await.answer()
+}
+
+// ---------------------------------------------------------------- what the forwarder did (0.5.0, net-check.log)
+
+/// Counters of the running route, written to net-check.log at the connection check and when the route stops: how
+/// many connections went through, how many bytes, and why the others did not.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct Stats {
+    pub connections: u64,
+    pub up: u64,
+    pub down: u64,
+    /// (reason, count): "no name" / "not ours" (dropped by the launcher), "relay" (the relay did not answer).
+    pub refused: Vec<(&'static str, u64)>,
+    /// The last connection that ended: host, bytes up, bytes down, how long (ms).
+    pub last: Option<(String, u64, u64, u64)>,
+}
+
+impl Stats {
+    fn refuse(&mut self, why: &'static str) {
+        match self.refused.iter_mut().find(|(w, _)| *w == why) {
+            Some((_, n)) => *n += 1,
+            None => self.refused.push((why, 1)),
+        }
+    }
+
+    /// One line for the log.
+    pub fn line(&self, tunnel: &str) -> String {
+        let refused = if self.refused.is_empty() {
+            String::new()
+        } else {
+            let parts: Vec<String> = self.refused.iter().map(|(w, n)| format!("{w} {n}")).collect();
+            format!("; не пропущено: {}", parts.join(", "))
+        };
+        let last = self
+            .last
+            .as_ref()
+            .map(|(h, u, d, ms)| format!("; последнее: {h}, {u}/{d} байт за {ms} мс"))
+            .unwrap_or_default();
+        format!(
+            "работа маршрута через {tunnel}: соединений {}, отправлено {} байт, получено {} байт{refused}{last}",
+            self.connections, self.up, self.down
+        )
+    }
+}
+
+/// Asks `host` through the tunnel: the HTTP status of `HEAD /` (any status = the path works). Only the test with a
+/// real relay uses it now (`real_tunnel`); the launcher asks `probe_traced`.
+/// Err: the relay does not answer, its certificate is wrong, or the host did not answer within `PROBE_TIMEOUT`.
+#[allow(dead_code)]
 pub async fn probe(tunnel: &Tunnel, host: &str) -> Result<u16, &'static str> {
     let run = async {
         let outer = open(tunnel).await.map_err(|_| "relay")?;
@@ -514,7 +654,7 @@ pub(crate) mod tests {
             let tunnel = Tunnel { address: addr.clone(), sha256: hex(&fingerprint(CERT)) };
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let local = listener.local_addr().unwrap();
-            let fwd = Arc::new(Forward { tunnel: tunnel.clone(), hosts: vec!["scui.rockstargames.com".into()] });
+            let fwd = Arc::new(Forward::new(tunnel.clone(), vec!["scui.rockstargames.com".into()]));
             let serve_task = tokio::spawn(serve(listener, fwd));
 
             // our host: the bytes come back through the relay
@@ -609,6 +749,51 @@ pub(crate) mod tests {
             assert_eq!(a.status, 403);
             assert!(!a.ok(), "{a:?}");
             t2.abort();
+        });
+    }
+
+    /// 0.5.0: a relay that «freezes» in the middle of the manifest: the trace keeps how far it got and says
+    /// «timeout»; a relay that does not answer at all says «relay» (net-check.log, relay number and stop reason).
+    #[test]
+    fn trace_keeps_the_bytes_of_a_frozen_tunnel() {
+        rt().block_on(async {
+            let acc = acceptor();
+            let (addr, t) = relay(move |outer| {
+                let acc = acc.clone();
+                async move {
+                    let Ok(mut inner) = acc.accept(outer).await else { return };
+                    let mut buf = vec![0u8; 2048];
+                    let n = inner.read(&mut buf).await.unwrap_or(0);
+                    let req = String::from_utf8_lossy(&buf[..n]).into_owned();
+                    let manifest = "ab".repeat(20);
+                    if req.contains("/updates/heads/") {
+                        let head = format!("HTTP/1.1 200 OK\r\nx-amz-meta-branch-manifest: {manifest}\r\nContent-Length: 0\r\n\r\n");
+                        let _ = inner.write_all(head.as_bytes()).await;
+                    } else if req.contains("/updates/ab/ab/") {
+                        let _ = inner.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 99000\r\n\r\n").await;
+                        let _ = inner.write_all(&vec![b'x'; 20 * 1024]).await;
+                        let _ = inner.flush().await;
+                        tokio::time::sleep(Duration::from_secs(30)).await;
+                    } else {
+                        let _ = inner.write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n").await;
+                    }
+                    let _ = inner.shutdown().await;
+                }
+            })
+            .await;
+            let tunnel = Tunnel { address: addr, sha256: hex(&fingerprint(CERT)) };
+            let tr = probe_traced(&tunnel, "scui.rockstargames.com", Duration::from_millis(2500)).await;
+            assert_eq!((tr.status, tr.stop), (Some(403), Some("timeout")), "{tr:?}");
+            assert_eq!(tr.bytes, 20 * 1024, "{tr:?}");
+            assert!(tr.ms >= 2400, "{tr:?}");
+            // the host answered: Ok, but not «ok» (frozen)
+            assert!(matches!(tr.answer(), Ok(a) if !a.ok()), "{tr:?}");
+            t.abort();
+
+            let dead = Tunnel { address: "127.0.0.1:1".into(), sha256: "ab".repeat(32) };
+            let tr = probe_traced(&dead, "scui.rockstargames.com", Duration::from_secs(3)).await;
+            assert_eq!((tr.status, tr.stop, tr.bytes), (None, Some("relay"), 0));
+            assert_eq!(tr.answer(), Err("relay"));
         });
     }
 
