@@ -58,6 +58,7 @@
   "maxPlayers": 48,
   "ownerEmail": "aaenlly@gmail.com",
   "fivemDownloadUrl": "https://fivem.net/",
+  "portableDownloadUrl": "https://github.com/Poopseeque/coldz-launcher/releases/latest",
   "newsUrl": "https://raw.githubusercontent.com/Poopseeque/coldz-launcher/main/news/news.json",
   "newsUrls": [
     "https://coldz.vip/launcher/news.json"

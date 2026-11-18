@@ -74,6 +74,9 @@ struct Config {
     max_players: u32,
     owner_email: String,
     fivem_download_url: String,
+    /// 0.5.0: where the portable build sends the player for a new version (it cannot update itself).
+    #[serde(default)]
+    portable_download_url: String,
     /// The first address of news.json (GitHub). Kept for older tools; the launcher asks `news_urls` too.
     news_url: String,
     /// 0.5.0: more addresses of the same news.json (coldz.vip): asked at the same time, the first good answer wins.
@@ -321,6 +324,40 @@ fn get_config(app: AppHandle) -> PublicConfig {
     }
 }
 
+// ---------------------------------------------------------------- portable build (0.5.0)
+
+/// The marker file of the portable build (README 11 / 7и): next to `COLDZ Launcher.exe`.
+const PORTABLE_MARK: &str = "portable.txt";
+
+/// Portable build: settings, logs and the news cache live next to the exe, in `data\`. None: the installed launcher.
+fn portable_dir() -> Option<PathBuf> {
+    static DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
+    DIR.get_or_init(|| {
+        let exe = std::env::current_exe().ok()?;
+        portable_dir_of(&exe)
+    })
+    .clone()
+}
+
+fn portable_dir_of(exe: &std::path::Path) -> Option<PathBuf> {
+    let dir = exe.parent()?;
+    dir.join(PORTABLE_MARK).is_file().then(|| dir.join("data"))
+}
+
+/// Where settings.json and the logs live: `data\` of the portable build, or `%APPDATA%\com.coldz.launcher`.
+fn config_dir(app: &AppHandle) -> Option<PathBuf> {
+    portable_dir().or_else(|| app.path().app_config_dir().ok())
+}
+
+fn cache_dir(app: &AppHandle) -> Option<PathBuf> {
+    portable_dir().map(|d| d.join("cache")).or_else(|| app.path().app_cache_dir().ok())
+}
+
+#[tauri::command]
+fn is_portable() -> bool {
+    portable_dir().is_some()
+}
+
 // ---------------------------------------------------------------- FiveM
 
 #[derive(Serialize, Clone, Debug)]
@@ -334,7 +371,7 @@ struct FivemInfo {
 
 /// `<app config dir>\fivem-search.log`: where the launcher looked for FiveM (next to settings.json).
 fn search_log_path(app: &AppHandle) -> Option<PathBuf> {
-    app.path().app_config_dir().ok().map(|d| d.join("fivem-search.log"))
+    config_dir(app).map(|d| d.join("fivem-search.log"))
 }
 
 /// What the log said last time: the window asks every few seconds while FiveM is missing, the log gets a new entry
@@ -639,7 +676,7 @@ async fn status_join_code(code: &str) -> Status {
 
 /// `<app config dir>\net-check.log`: what answered how at the connection checks (netcheck.rs), next to settings.json.
 fn net_log_path(app: &AppHandle) -> Option<PathBuf> {
-    app.path().app_config_dir().ok().map(|d| d.join("net-check.log"))
+    config_dir(app).map(|d| d.join("net-check.log"))
 }
 
 /// «Проверить связь», the check before «Играть» and (0.3.4) once at launcher start (netcheck.rs): the Cfx.re services
@@ -938,7 +975,7 @@ fn stop_forwarder() {
 
 /// A folder the launcher may write the block file to (hosts.rs): next to settings.json.
 fn signin_work_dir(app: &AppHandle) -> PathBuf {
-    app.path().app_config_dir().unwrap_or_else(|_| std::env::temp_dir())
+    config_dir(app).unwrap_or_else(std::env::temp_dir)
 }
 
 /// The tunnel to use: the one that answered at the last check, or asked now.
@@ -1093,7 +1130,7 @@ async fn server_status() -> Status {
 // ---------------------------------------------------------------- nickname
 
 fn settings_path(app: &AppHandle) -> Option<PathBuf> {
-    app.path().app_config_dir().ok().map(|d| d.join("settings.json"))
+    config_dir(app).map(|d| d.join("settings.json"))
 }
 
 /// Changes settings.json: one read-modify-write at a time (0.3.5: the connection check remembers the route while
@@ -1281,7 +1318,7 @@ async fn first_signed(urls: Vec<String>, pubkey: String) -> Option<(SignedNews, 
 
 #[tauri::command]
 async fn fetch_news(app: AppHandle) -> News {
-    let cache = app.path().app_cache_dir().ok().map(|d| d.join("news.json"));
+    let cache = cache_dir(&app).map(|d| d.join("news.json"));
     let pubkey = config().news_pubkey.clone();
     if let Some((n, _url)) = first_signed(news_urls(), pubkey).await {
         if let Some(c) = &cache {
@@ -1501,7 +1538,8 @@ async fn check_update(app: AppHandle) -> Result<Option<UpdateInfo>, String> {
         notes: u.body.clone(),
     });
     let already = ready_lock(&app).as_ref().map(|(u, _)| u.version.clone());
-    if let Some(u) = update.as_ref().filter(|u| already.as_deref() != Some(u.version.as_str())) {
+    // 0.5.0: the portable build is not installed anywhere: the window offers to download the new zip instead
+    if let Some(u) = update.as_ref().filter(|u| portable_dir().is_none() && already.as_deref() != Some(u.version.as_str())) {
         download_in_background(&app, u.clone());
     }
     *app.state::<PendingUpdate>().0.lock().await = update;
@@ -1516,6 +1554,9 @@ fn update_ready(app: AppHandle) -> Option<String> {
 
 #[tauri::command]
 async fn install_update(app: AppHandle) -> Result<(), String> {
+    if portable_dir().is_some() {
+        return Err("portable".into());
+    }
     // 0.5.0: already downloaded: install at once (the installer starts the launcher again)
     let ready = ready_lock(&app).take();
     if let Some((update, bytes)) = ready {
@@ -1564,7 +1605,7 @@ pub fn run() {
         .manage(ReadyUpdate(std::sync::Mutex::new(None)))
         .setup(|app| {
             // Address from the last downloaded news.json, so the status works before a new download.
-            let cache = app.path().app_cache_dir().ok().map(|d| d.join("news.json"));
+            let cache = cache_dir(app.handle()).map(|d| d.join("news.json"));
             apply_feed(&local_news(cache).1);
             // 0.4.0: a sign-in route block left in the hosts file from the last run (signin_resume)
             let handle = app.handle().clone();
@@ -1586,6 +1627,7 @@ pub fn run() {
             open_external,
             check_update,
             update_ready,
+            is_portable,
             install_update,
             signin_status,
             signin_enable,
@@ -1880,6 +1922,22 @@ mod tests {
         assert_eq!(parse_info_restart(&info, 1_000_000), Some(120));
         assert_eq!(parse_info_restart(&serde_json::json!({ "vars": { "coldz_restart_at": "0" } }), 1_000_000), None);
         assert_eq!(parse_info_restart(&serde_json::json!({ "vars": {} }), 1_000_000), None);
+    }
+
+    /// 0.5.0: the portable build is told by `portable.txt` next to the exe; data then lives in `data\` beside it.
+    #[test]
+    fn portable_marker() {
+        let d = std::env::temp_dir().join(format!("coldz-portable-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        let exe = d.join("COLDZ Launcher.exe");
+        std::fs::write(&exe, b"MZ").unwrap();
+        assert_eq!(portable_dir_of(&exe), None);
+        std::fs::write(d.join(PORTABLE_MARK), b"").unwrap();
+        assert_eq!(portable_dir_of(&exe), Some(d.join("data")));
+        let _ = std::fs::remove_dir_all(&d);
+        // the test exe itself is not portable
+        assert_eq!(portable_dir(), None);
     }
 
     #[test]

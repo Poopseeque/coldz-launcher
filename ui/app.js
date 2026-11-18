@@ -826,12 +826,18 @@
   // 0.5.0: downloaded in the background: «installs itself when you close the launcher», the button still works
   let updateVersion = null;
   let updateReady = false;
+  let portable = false;      // 0.5.0: the portable zip: a new version is downloaded by hand
   function renderUpdate() {
     if (!updateVersion || $("btn-update").disabled) return;
-    $("update-text").textContent = t(updateReady ? "update_ready" : "update_available", { v: updateVersion });
+    $("update-text").textContent = t(portable ? "update_portable" : updateReady ? "update_ready" : "update_available", { v: updateVersion });
+    $("btn-update").textContent = t(portable ? "update_download" : "update_install");
   }
 
   async function installUpdate() {
+    if (portable) {
+      if (cfg && cfg.portableDownloadUrl) openExternal(cfg.portableDownloadUrl);
+      return;
+    }
     const btn = $("btn-update");
     btn.disabled = true;
     $("update-text").textContent = t("updating", { p: 0 });
@@ -925,6 +931,7 @@
 
     cfg = await invoke("get_config");
     $("version").textContent = "v" + cfg.version;
+    try { portable = !!(await invoke("is_portable")); } catch { portable = false; }
     $("max-players").textContent = cfg.maxPlayers;
     $("email").textContent = cfg.ownerEmail;
     $("email").onclick = (e) => { e.preventDefault(); openExternal("mailto:" + cfg.ownerEmail); };
@@ -990,7 +997,7 @@
     const data = {
       get_config: {
         serverName: "COLDZ", maxPlayers: 48, ownerEmail: "owner@example.com", version: "preview",
-        fivemDownloadUrl: "https://fivem.net/",
+        fivemDownloadUrl: "https://fivem.net/", portableDownloadUrl: "https://github.com/Poopseeque/coldz-launcher/releases/latest",
         links: [
           { icon: "vk", label: "ВКонтакте", url: "https://vk.ru/coldz_server" },
           { icon: "youtube", label: "YouTube", url: "https://youtube.com/@coldzgta5" },
@@ -999,6 +1006,8 @@
         ]
       },
       detect_fivem: { installed: q.get("fivem") !== "0" },
+      // 0.5.0: &portable=1 — the portable zip (with ?update=1: «download the new version»)
+      is_portable: q.get("portable") === "1",
       server_status: q.get("address") === "0"
         ? { online: false, players: 0, maxPlayers: 48, pingMs: null, address: "" }
         : { online: true, players: 12, maxPlayers: 48, pingMs: 34, address: "203.0.113.10:30120", route: null },

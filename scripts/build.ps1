@@ -99,8 +99,36 @@ if (Test-Path $sigPath) {
     }
 }
 
+# 0.5.0: the portable build, a second file of the release (README 7и): the exe, portable.txt (the marker: settings and
+# logs in data\ next to it), a short text. No auto-update: the launcher sends the player to the download page.
+$exe = Get-ChildItem "src-tauri\target\release" -Filter "COLDZ Launcher.exe" | Select-Object -First 1
+if ($exe) {
+    $portDir = Join-Path $env:TEMP "coldz-portable-$version"
+    if (Test-Path $portDir) { Remove-Item -Recurse -Force $portDir }
+    New-Item -ItemType Directory -Force $portDir | Out-Null
+    Copy-Item $exe.FullName (Join-Path $portDir "COLDZ Launcher.exe")
+    $mark = @"
+COLDZ Launcher $version, portable / портативная версия.
+
+RU: Распакуйте папку куда угодно и запустите «COLDZ Launcher.exe». Настройки и журналы лежат рядом, в папке data.
+Сама версия не обновляется: когда выйдет новая, лаунчер предложит скачать её. Нужен Microsoft Edge WebView2 (есть в
+Windows 10/11; если окно не открывается: https://developer.microsoft.com/microsoft-edge/webview2/).
+EN: Unpack anywhere and run "COLDZ Launcher.exe". Settings and logs stay next to it, in the data folder. This copy
+does not update itself: when a new version is out, the launcher offers to download it. Needs Microsoft Edge WebView2.
+
+COLDZ IS NOT APPROVED, SPONSORED, OR ENDORSED BY ROCKSTAR GAMES.
+"@
+    [System.IO.File]::WriteAllText((Join-Path $portDir "portable.txt"), $mark, (New-Object System.Text.UTF8Encoding($true)))
+    $zipName = "COLDZ-Launcher_${version}_x64-portable.zip"
+    $zipPath = Join-Path $outDir $zipName
+    if (Test-Path $zipPath) { Remove-Item -Force $zipPath }
+    Compress-Archive -Path (Join-Path $portDir "*") -DestinationPath $zipPath
+    Remove-Item -Recurse -Force $portDir
+}
+
 $sizeMb = [math]::Round((Get-Item (Join-Path $outDir $fileName)).Length / 1MB, 2)
 Write-Host ""
 Write-Host "Done: $outDir" -ForegroundColor Green
 Write-Host "  $fileName  ($sizeMb MB)"
-if (Test-Path (Join-Path $outDir "latest.json")) { Write-Host "  $fileName.sig, latest.json  -> upload all three to GitHub release v$version" }
+if (Test-Path (Join-Path $outDir "latest.json")) { Write-Host "  $fileName.sig, latest.json  -> upload to GitHub release v$version" }
+if ($exe) { Write-Host "  $zipName  (portable, also upload to the release)" }

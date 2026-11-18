@@ -595,6 +595,27 @@ onedrive|slow_disk|crash`, `&card=report`, `&card=settings`.
 Тесты: лаунчер `restart_and_online_from_the_server`, `tunnel_lines_name_the_relay_and_the_stop` (строка пинга);
 сервер `tests/z_menu/launcher_online1811_spec.lua`.
 
+## 7и. Портативная версия без установки (с версии 0.5.0)
+
+Второй файл выпуска: `release\<версия>\COLDZ-Launcher_<версия>_x64-portable.zip` (делает `scripts/build.ps1` после
+установщика, и в проверочной сборке тоже). Внутри `COLDZ Launcher.exe` и `portable.txt` (короткая памятка RU/EN и
+строка лицензии FiveM).
+
+- **Признак:** файл `portable.txt` рядом с exe (`lib.rs portable_dir`). Тогда `settings.json`, `net-check.log`,
+  `fivem-search.log` и кэш новостей лежат рядом, в `data\` (у установленного: `%APPDATA%\com.coldz.launcher\`).
+  Удалить `portable.txt` = обычный режим. Кэш самого окна (WebView2) остаётся в `%LOCALAPPDATA%\com.coldz.launcher\`:
+  это делает WebView2, туда только язык и скрытая подсказка.
+- **Обновления:** портативная сама не ставится (`install_update` → `portable`, фоновой загрузки нет). При новой
+  версии строка «Это портативная версия: скачайте новую и распакуйте вместо этой.» и кнопка «Скачать» →
+  `portableDownloadUrl` из `launcher.config.json` (сейчас `releases/latest` на GitHub; при закрытии репозитория
+  поменять на страницу coldz.vip, раздел 7к).
+- **Минусы** (поэтому только дополнительный файл): нет ярлыка и записи «Программы и компоненты», нет автообновления,
+  WebView2 должен уже быть в Windows (в Windows 10/11 обычно есть; установщик ставит его сам, zip нет), exe без
+  подписи Windows так же, как установщик.
+- Загрузить zip в выпуск GitHub четвёртым файлом (и на coldz.vip в `/launcher/` по желанию).
+
+Предпросмотр: `?portable=1&update=1`. Тест: `portable_marker`.
+
 ## Как устроено
 
 ```
