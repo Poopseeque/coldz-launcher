@@ -63,6 +63,7 @@
     renderSettings();
     renderRestart();
     renderSpark();
+    renderUpdate();
   }
 
   // ------------------------------------------------------------ status + address
@@ -813,12 +814,21 @@
     try {
       const upd = await invoke("check_update");
       if (!upd) return;
-      $("update-text").textContent = t("update_available", { v: upd.version });
+      updateVersion = upd.version;
+      renderUpdate();
       $("update").hidden = false;
     } catch (e) {
       // No internet or no release yet — the launcher works without updates.
       console.info("update check:", e);
     }
+  }
+
+  // 0.5.0: downloaded in the background: «installs itself when you close the launcher», the button still works
+  let updateVersion = null;
+  let updateReady = false;
+  function renderUpdate() {
+    if (!updateVersion || $("btn-update").disabled) return;
+    $("update-text").textContent = t(updateReady ? "update_ready" : "update_available", { v: updateVersion });
   }
 
   async function installUpdate() {
@@ -932,6 +942,7 @@
     // within a minute of a good result does not wait for a new one.
     loadNews().then(() => { refreshStatus(); runNetCheck(); refreshInfo(); });
     setTimeout(checkUpdate, 1500);
+    T.event.listen("update-ready", () => { updateReady = true; renderUpdate(); }).catch(() => {});
 
     setInterval(refreshStatus, STATUS_EVERY_MS);
     setInterval(refreshInfo, INFO_EVERY_MS);
@@ -991,7 +1002,8 @@
       server_status: q.get("address") === "0"
         ? { online: false, players: 0, maxPlayers: 48, pingMs: null, address: "" }
         : { online: true, players: 12, maxPlayers: 48, pingMs: 34, address: "203.0.113.10:30120", route: null },
-      check_update: null
+      // 0.5.0: ?update=1 — a new version (downloaded in the background: «installs itself on close»)
+      check_update: q.get("update") ? { version: "0.5.0", notes: null } : null
     };
     let previewNick = "";
     // the route a check chose: a reserve address with ?route=reserve
@@ -1126,6 +1138,10 @@
       return data[cmd];
     };
     const win = { minimize: async () => {}, toggleMaximize: async () => {}, close: async () => {} };
-    return { core: { invoke: call }, window: { getCurrentWindow: () => win }, event: { listen: async () => () => {} } };
+    const listen = async (name, fn) => {
+      if (name === "update-ready" && q.get("update")) setTimeout(() => fn({ payload: "0.5.0" }), 2500);
+      return () => {};
+    };
+    return { core: { invoke: call }, window: { getCurrentWindow: () => win }, event: { listen } };
   }
 })();

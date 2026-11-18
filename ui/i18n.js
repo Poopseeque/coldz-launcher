@@ -155,7 +155,8 @@ window.I18N = {
     svc_reserve_n: "Резервный маршрут {n}",
     unit_b: "Б",
     unit_kb: "КБ",
-    unit_mb: "МБ"
+    unit_mb: "МБ",
+    update_ready: "Вышла версия {v}. Она уже скачана и поставится сама, когда вы закроете лаунчер."
   },
   en: {
     lead: "Winter never ends. Find warmth, food and ammo before the dead or the living find you.",
@@ -302,7 +303,8 @@ window.I18N = {
     svc_reserve_n: "Backup route {n}",
     unit_b: "B",
     unit_kb: "KB",
-    unit_mb: "MB"
+    unit_mb: "MB",
+    update_ready: "Version {v} is out. It is already downloaded and installs itself when you close the launcher."
   },
   es: {
     lead: "El invierno no termina. Busca calor, comida y munición antes de que te encuentren los muertos o los vivos.",
@@ -449,7 +451,8 @@ window.I18N = {
     svc_reserve_n: "Ruta de reserva {n}",
     unit_b: "B",
     unit_kb: "KB",
-    unit_mb: "MB"
+    unit_mb: "MB",
+    update_ready: "Salió la versión {v}. Ya está descargada y se instalará sola al cerrar el lanzador."
   },
   "pt-BR": {
     lead: "O inverno não acaba. Encontre calor, comida e munição antes que os mortos ou os vivos encontrem você.",
@@ -596,6 +599,7 @@ window.I18N = {
     svc_reserve_n: "Rota reserva {n}",
     unit_b: "B",
     unit_kb: "KB",
-    unit_mb: "MB"
+    unit_mb: "MB",
+    update_ready: "Saiu a versão {v}. Ela já foi baixada e será instalada sozinha quando você fechar o launcher."
   }
 };

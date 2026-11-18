@@ -1443,11 +1443,49 @@ fn open_external(app: AppHandle, url: String) -> Result<(), String> {
 
 struct PendingUpdate(Mutex<Option<tauri_plugin_updater::Update>>);
 
+/// 0.5.0: the new version, already downloaded in the background (its signature is checked again by `install`).
+/// «Обновить» installs it at once; closing the launcher installs it quietly (no restart): `install_on_exit`.
+struct ReadyUpdate(std::sync::Mutex<Option<(tauri_plugin_updater::Update, Vec<u8>)>>);
+
+fn ready_lock(app: &AppHandle) -> std::sync::MutexGuard<'_, Option<(tauri_plugin_updater::Update, Vec<u8>)>> {
+    app.state::<ReadyUpdate>().inner().0.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UpdateInfo {
     version: String,
     notes: Option<String>,
+}
+
+/// 0.5.0: downloads the update in the background after the check; `update-ready` tells the window.
+fn download_in_background(app: &AppHandle, update: tauri_plugin_updater::Update) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        match update.download(|_, _| {}, || {}).await {
+            Ok(bytes) => {
+                let version = update.version.clone();
+                *ready_lock(&app) = Some((update, bytes));
+                let _ = app.emit("update-ready", version);
+            }
+            Err(e) => {
+                if let Some(log) = net_log_path(&app) {
+                    fivem::write_log(&log, &format!("обновление {}: не скачалось заранее ({e})", update.version), &[]);
+                }
+            }
+        }
+    });
+}
+
+/// At the launcher's exit (after the sign-in route is cleaned up): a downloaded update is installed without
+/// questions (NSIS «passive»: only a progress bar) and the launcher is not started again. The installer exits this
+/// process itself.
+fn install_on_exit(app: &AppHandle) {
+    let Some((update, bytes)) = ready_lock(app).take() else { return };
+    if let Some(log) = net_log_path(app) {
+        fivem::write_log(&log, &format!("обновление {} ставится при закрытии лаунчера", update.version), &[]);
+    }
+    let _ = update.restart_after_install(false).install(&bytes);
 }
 
 #[tauri::command]
@@ -1462,12 +1500,29 @@ async fn check_update(app: AppHandle) -> Result<Option<UpdateInfo>, String> {
         version: u.version.clone(),
         notes: u.body.clone(),
     });
+    let already = ready_lock(&app).as_ref().map(|(u, _)| u.version.clone());
+    if let Some(u) = update.as_ref().filter(|u| already.as_deref() != Some(u.version.as_str())) {
+        download_in_background(&app, u.clone());
+    }
     *app.state::<PendingUpdate>().0.lock().await = update;
     Ok(info)
 }
 
+/// 0.5.0: the window asks whether the update is already downloaded (it then says it installs itself on close).
+#[tauri::command]
+fn update_ready(app: AppHandle) -> Option<String> {
+    ready_lock(&app).as_ref().map(|(u, _)| u.version.clone())
+}
+
 #[tauri::command]
 async fn install_update(app: AppHandle) -> Result<(), String> {
+    // 0.5.0: already downloaded: install at once (the installer starts the launcher again)
+    let ready = ready_lock(&app).take();
+    if let Some((update, bytes)) = ready {
+        let _ = app.emit("update-progress", 100u64);
+        update.install(&bytes).map_err(|e| e.to_string())?;
+        app.restart();
+    }
     let Some(update) = app.state::<PendingUpdate>().0.lock().await.take() else {
         return Err("no_update".into());
     };
@@ -1505,6 +1560,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(PendingUpdate(Mutex::new(None)))
+        .manage(ReadyUpdate(std::sync::Mutex::new(None)))
+        .manage(ReadyUpdate(std::sync::Mutex::new(None)))
         .setup(|app| {
             // Address from the last downloaded news.json, so the status works before a new download.
             let cache = app.path().app_cache_dir().ok().map(|d| d.join("news.json"));
@@ -1528,6 +1585,7 @@ pub fn run() {
             fetch_news,
             open_external,
             check_update,
+            update_ready,
             install_update,
             signin_status,
             signin_enable,
@@ -1543,6 +1601,8 @@ pub fn run() {
             // 0.4.0: the hosts block must not outlive the forwarder (signin.rs)
             if let tauri::RunEvent::Exit = event {
                 signin_cleanup(app);
+                // 0.5.0: a downloaded update goes in quietly now (after the hosts block is gone)
+                install_on_exit(app);
             }
         });
 }
