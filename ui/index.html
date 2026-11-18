@@ -21,6 +21,10 @@
         <option value="es">ES</option>
         <option value="pt-BR">PT-BR</option>
       </select>
+      <!-- 0.5.0: настройки и помощь (отчёт для поддержки, трей) -->
+      <button class="winbtn" id="btn-settings" aria-label="Settings" data-i18n-title="settings">
+        <svg viewBox="0 0 12 12"><circle cx="6" cy="6" r="1.7" /><path d="M6 1v1.6M6 9.4V11M1 6h1.6M9.4 6H11M2.5 2.5l1.1 1.1M8.4 8.4l1.1 1.1M2.5 9.5l1.1-1.1M8.4 3.6l1.1-1.1" /></svg>
+      </button>
       <button class="winbtn" id="btn-min" aria-label="Minimize" data-i18n-title="minimize">
         <svg viewBox="0 0 12 12"><path d="M2 6.5h8" /></svg>
       </button>
@@ -95,6 +99,11 @@
           <button class="address__copy" id="btn-net-retry" data-i18n="net_retry"></button>
           <button class="address__copy" id="btn-net-details" data-i18n="net_details"></button>
         </p>
+        <!-- 0.5.0: подсказка после вылета FiveM (src-tauri/src/support.rs): одна строка вместо «FiveM установлен» -->
+        <p class="fivem__links" id="fivem-hint" hidden>
+          <button class="address__copy" id="btn-hint-report" data-i18n="hint_report"></button>
+          <button class="address__copy" id="btn-hint-hide" data-i18n="hint_hide"></button>
+        </p>
       </div>
 
       <div class="update" id="update" hidden>
@@ -140,6 +149,38 @@
         <button class="btn btn--accent" id="btn-net-play" hidden></button>
         <button class="btn" id="btn-net-recheck" data-i18n="net_retry"></button>
         <button class="btn" id="btn-net-close" data-i18n="close"></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 0.5.0: настройки и помощь -->
+  <div class="dialog" id="settings" hidden>
+    <div class="dialog__card" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <h2 class="dialog__title" id="settings-title" data-i18n="settings_title"></h2>
+      <div class="settings__list" id="settings-list"></div>
+      <div class="dialog__actions">
+        <button class="btn" id="btn-report-open" data-i18n="report_open"></button>
+        <button class="btn" id="btn-settings-close" data-i18n="close"></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 0.5.0: отчёт для поддержки (src-tauri/src/support.rs): сначала список файлов, потом zip на рабочем столе,
+       ничего не отправляется -->
+  <div class="dialog" id="report" hidden>
+    <div class="dialog__card" role="dialog" aria-modal="true" aria-labelledby="report-title">
+      <h2 class="dialog__title" id="report-title" data-i18n="report_title"></h2>
+      <p class="dialog__text" id="report-text" data-i18n="report_text"></p>
+      <ul class="netlist filelist" id="report-list"></ul>
+      <p class="dialog__hint" id="report-dumps" hidden></p>
+      <label class="check" id="report-dump-box" hidden>
+        <input type="checkbox" id="report-dump">
+        <span id="report-dump-text"></span>
+      </label>
+      <p class="dialog__hint" id="report-result" hidden></p>
+      <div class="dialog__actions">
+        <button class="btn btn--accent" id="btn-report-make" data-i18n="report_make"></button>
+        <button class="btn" id="btn-report-close" data-i18n="close"></button>
       </div>
     </div>
   </div>

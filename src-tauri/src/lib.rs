@@ -22,6 +22,7 @@ mod nick;
 mod route;
 mod running;
 mod signin;
+mod support;
 mod tunnel;
 
 use serde::{Deserialize, Serialize};
@@ -1121,6 +1122,112 @@ fn local_news(cache: Option<PathBuf>) -> (&'static str, serde_json::Value) {
     ("bundled", serde_json::from_str(BUNDLED_NEWS).unwrap_or_default())
 }
 
+// ---------------------------------------------------------------- support report and crash hint (0.5.0, support.rs)
+
+/// The FiveM.exe the launcher found (no log entry: this is asked in the background).
+fn fivem_exe_quiet(app: &AppHandle) -> Option<PathBuf> {
+    let manual = settings_path(app).map(|p| nick::load(&p).fivem_path).filter(|p| !p.trim().is_empty()).map(PathBuf::from);
+    fivem::search(&fivem::System { manual }).0.map(|f| f.path)
+}
+
+/// One line under «Играть» after a fresh FiveM crash (support.rs `hint`). None: nothing to say.
+#[tauri::command]
+async fn crash_hint(app: AppHandle) -> Option<support::Hint> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let exe = fivem_exe_quiet(&app);
+        support::hint(&support::gather(exe.as_deref(), std::time::SystemTime::now()))
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+fn launcher_logs(app: &AppHandle) -> Vec<PathBuf> {
+    [net_log_path(app), search_log_path(app)].into_iter().flatten().collect()
+}
+
+/// Our own addresses may stay in the report: the server, the reserve routes, the relays of the sign-in route.
+fn our_ips() -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut add = |a: &str| {
+        let host = a.rsplit_once(':').map_or(a, |(h, _)| h).to_string();
+        if !out.contains(&host) {
+            out.push(host);
+        }
+    };
+    if let Some(a) = primary_address() {
+        add(&a);
+    }
+    for r in effective_relays().iter().chain(config().relays.iter()) {
+        add(r);
+    }
+    for t in effective_signin().tunnels.iter().chain(config().signin.tunnels.iter()) {
+        add(&t.address);
+    }
+    out
+}
+
+/// «Собрать отчёт для поддержки», step 1: what will go into the zip (shown to the player before anything is made).
+#[tauri::command]
+async fn support_preview(app: AppHandle) -> support::Plan {
+    tauri::async_runtime::spawn_blocking(move || {
+        let exe = fivem_exe_quiet(&app);
+        support::plan(&launcher_logs(&app), exe.as_deref(), std::time::SystemTime::now()).0
+    })
+    .await
+    .unwrap_or_default()
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SupportDone {
+    path: String,
+    name: String,
+    size: u64,
+}
+
+/// Step 2: the zip on the desktop (`COLDZ-support-<date>-<time>.zip`), Explorer shows it. `with_dump` — the player
+/// ticked the crash dump. Err: no_desktop, write_failed.
+#[tauri::command]
+async fn support_create(app: AppHandle, with_dump: bool) -> Result<SupportDone, String> {
+    let version = app.package_info().version.to_string();
+    let keep = our_ips();
+    let route_on = signin_lock().active;
+    tauri::async_runtime::spawn_blocking(move || {
+        let now = std::time::SystemTime::now();
+        let exe = fivem_exe_quiet(&app);
+        let (plan, dumps) = support::plan(&launcher_logs(&app), exe.as_deref(), now);
+        let facts = support::gather(exe.as_deref(), now);
+        let hint = support::hint(&facts);
+        let s = settings_path(&app).map(|p| nick::load(&p)).unwrap_or_default();
+        let extra = vec![
+            format!("Ник в лаунчере: {}", if s.nick.is_empty() { "(из FiveM)" } else { &s.nick }),
+            format!("Маршрут к серверу: {}", if s.last_route.is_empty() { "-" } else { &s.last_route }),
+            format!("Резервный маршрут входа: {}", if route_on { "включён" } else { "выключен" }),
+            format!("FiveM.exe указан вручную: {}", if s.fivem_path.is_empty() { "нет" } else { "да" }),
+        ];
+        let system = support::system_text(&version, &facts, hint.as_ref(), &dumps, &extra);
+        let bytes = support::build(&plan, &system, with_dump, &support::Scrub::of_this_pc(keep));
+        let desk = support::desktop_dir().ok_or_else(|| "no_desktop".to_string())?;
+        let stamp = fivem::utc_stamp(netcheck::unix_now());
+        // «2026-11-18 22:30:05 UTC» -> «20261118-223005»
+        let compact: String = stamp.chars().filter(|c| c.is_ascii_digit()).take(14).collect();
+        let name = format!("COLDZ-support-{}-{}.zip", &compact[..8.min(compact.len())], &compact[8.min(compact.len())..]);
+        let path = desk.join(&name);
+        std::fs::write(&path, &bytes).map_err(|_| "write_failed".to_string())?;
+        #[cfg(windows)]
+        {
+            let windir = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".into());
+            let _ = std::process::Command::new(std::path::Path::new(&windir).join("explorer.exe"))
+                .arg(format!("/select,{}", path.display()))
+                .spawn();
+        }
+        Ok(SupportDone { path: path.display().to_string(), name, size: bytes.len() as u64 })
+    })
+    .await
+    .map_err(|_| "write_failed".to_string())?
+}
+
 // ---------------------------------------------------------------- links
 
 /// Opens a web link or e-mail in the default program. Only https:// and mailto:.
@@ -1225,7 +1332,10 @@ pub fn run() {
             install_update,
             signin_status,
             signin_enable,
-            signin_disable
+            signin_disable,
+            crash_hint,
+            support_preview,
+            support_create
         ])
         .build(tauri::generate_context!())
         .expect("error while building COLDZ launcher")

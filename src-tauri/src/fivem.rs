@@ -377,7 +377,7 @@ fn push_unique(list: &mut Vec<PathBuf>, p: Option<PathBuf>) {
 }
 
 #[cfg(windows)]
-fn known_folder(id: &windows_sys::core::GUID) -> Option<PathBuf> {
+pub(crate) fn known_folder(id: &windows_sys::core::GUID) -> Option<PathBuf> {
     use windows_sys::Win32::System::Com::CoTaskMemFree;
     use windows_sys::Win32::UI::Shell::SHGetKnownFolderPath;
     unsafe {

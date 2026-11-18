@@ -347,6 +347,20 @@ button, select { font: inherit; color: inherit; }
 .netlist li[data-state="fail"] .netlist__state { color: #ffb4b8; }
 .netlist .netlist__server { margin-top: 4px; padding-top: 6px; border-top: 1px dashed rgba(255, 255, 255, .08); }
 
+/* 0.5.0: the crash hint (support.rs): an amber line instead of «FiveM установлен» */
+.fivem[data-state="hint"] .fivem__text { color: #ffe3a3; }
+.fivem[data-state="hint"] .fivem__text::before { content: "! "; color: var(--amber); font-weight: 700; }
+
+/* 0.5.0: settings and the support report */
+.settings__list { display: grid; gap: 10px; }
+.check { display: flex; gap: 10px; align-items: flex-start; margin: 12px 0 0; color: var(--muted); line-height: 1.45; cursor: pointer; }
+.check input { margin: 3px 0 0; accent-color: var(--blood-hi); flex: none; }
+.settings__list .check { margin: 0; }
+.filelist li { grid-template-columns: 16px minmax(0, 1fr) auto; }
+.filelist li span:first-of-type { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#report-result[data-state="ok"] { color: #c9f5d9; }
+#report-result[data-state="bad"] { color: #ffb4b8; }
+
 /* ---------- news / rules panel */
 .panel {
   display: flex; flex-direction: column;

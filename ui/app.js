@@ -21,6 +21,7 @@
   let address = "";          // address in use ("" = not published yet)
   let route = null;          // 0.3.5: "main" | "reserve" | "none" | null (src-tauri/src/route.rs)
   let tab = "news";
+  let crashHint = null;      // 0.5.0: { key, detail, gb, at } after a fresh FiveM crash (src-tauri/src/support.rs)
 
   // ------------------------------------------------------------ language
   function storageGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
@@ -55,6 +56,8 @@
     renderNews();
     renderRules();
     renderNet();
+    renderReport();
+    renderSettings();
   }
 
   // ------------------------------------------------------------ status + address
@@ -188,6 +191,7 @@
     // «Закрыть FiveM» — только пока висит сообщение «FiveM завис» (stuck)
     $("fivem-stuck").hidden = !(showing && fivemMessage.stuck);
     $("fivem-net").hidden = true;
+    $("fivem-hint").hidden = true;
     if (showing) {
       box.dataset.state = "message";
       text.textContent = t(fivemMessage.key, { a: address || "—" });
@@ -210,9 +214,115 @@
       $("btn-net-retry").disabled = !!net.running;
       return;
     }
+    // 0.5.0: after a fresh FiveM crash, one simple line about the likely cause (until the player hides it)
+    const hint = fivemInstalled ? visibleHint() : null;
+    if (hint) {
+      box.dataset.state = "hint";
+      text.textContent = hintText(hint);
+      actions.hidden = true;
+      $("fivem-hint").hidden = false;
+      return;
+    }
     box.dataset.state = fivemInstalled ? "ok" : "missing";
     text.textContent = t(fivemInstalled ? "fivem_found" : "fivem_missing");
     actions.hidden = fivemInstalled;
+  }
+
+  // ------------------------------------------------------------ crash hint + support report (0.5.0)
+  const hintId = (h) => h.key + ":" + h.at;
+  function visibleHint() {
+    return crashHint && storageGet("hintHidden") !== hintId(crashHint) ? crashHint : null;
+  }
+  function hintText(h) {
+    return t("hint_" + h.key, { f: h.detail ? " (" + h.detail + ")" : "", d: h.detail, g: h.gb, p: h.detail });
+  }
+  function hideHint() {
+    if (crashHint) storageSet("hintHidden", hintId(crashHint));
+    renderFivem();
+  }
+  async function loadHint() {
+    try { crashHint = (await invoke("crash_hint")) || null; } catch { crashHint = null; }
+    renderFivem();
+  }
+
+  function formatSize(n) {
+    if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + " MB";
+    if (n >= 1024) return Math.round(n / 1024) + " KB";
+    return n + " B";
+  }
+  function formatTime(unix) {
+    try { return new Intl.DateTimeFormat(lang, { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }).format(new Date(unix * 1000)); }
+    catch { return ""; }
+  }
+
+  const report = { plan: null, busy: false, result: null };
+  async function openReport() {
+    $("settings").hidden = true;
+    $("report").hidden = false;
+    report.plan = null;
+    report.result = null;
+    $("report-dump").checked = false;
+    renderReport();
+    $("btn-report-close").focus();
+    try { report.plan = await invoke("support_preview"); } catch (e) { console.warn("report:", e); report.plan = { files: [], dump: null, dumpsToday: 0 }; }
+    renderReport();
+  }
+  function renderReport() {
+    if ($("report").hidden) return;
+    const list = $("report-list");
+    list.replaceChildren();
+    const p = report.plan;
+    if (!p) {
+      const li = el("li");
+      li.dataset.state = "wait";
+      li.append(el("span", null, t("report_loading")), el("span", "netlist__state", ""));
+      list.append(li);
+    } else {
+      for (const f of p.files || []) {
+        const li = el("li");
+        li.dataset.state = "ok";
+        const system = f.name === "system.txt";
+        li.append(el("span", null, system ? f.name + ": " + t("report_system") : f.name), el("span", "netlist__state", system ? "" : formatSize(f.size)));
+        list.append(li);
+      }
+    }
+    const dump = p && p.dump;
+    $("report-dump-box").hidden = !dump;
+    if (dump) $("report-dump-text").textContent = t("report_dump", { s: formatSize(dump.size), d: formatTime(dump.at) });
+    $("report-dumps").hidden = !(p && p.dumpsToday > 0);
+    if (p) $("report-dumps").textContent = t("report_dumps", { n: p.dumpsToday });
+    const r = report.result;
+    $("report-result").hidden = !r;
+    if (r) {
+      $("report-result").dataset.state = r.ok ? "ok" : "bad";
+      $("report-result").textContent = r.ok ? t("report_done", { n: r.name }) : t("report_failed");
+    }
+    const make = $("btn-report-make");
+    make.disabled = !p || report.busy;
+    make.textContent = t(report.busy ? "report_making" : "report_make");
+  }
+  async function makeReport() {
+    if (report.busy || !report.plan) return;
+    report.busy = true;
+    renderReport();
+    try {
+      const done = await invoke("support_create", { withDump: $("report-dump").checked });
+      report.result = { ok: true, name: done.name };
+    } catch (e) {
+      console.warn("report:", e);
+      report.result = { ok: false };
+    }
+    report.busy = false;
+    renderReport();
+  }
+
+  function openSettings() {
+    $("settings").hidden = false;
+    renderSettings();
+    $("btn-settings-close").focus();
+  }
+  function renderSettings() {
+    if ($("settings").hidden) return;
   }
 
   async function refreshFivem() {
@@ -713,7 +823,19 @@
     $("btn-net-close").onclick = closeNet;
     $("btn-net-signin").onclick = toggleSignin;
     $("btn-net-play").onclick = () => { closeNet(); play({ fromNet: true }); };
-    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("net").hidden) closeNet(); });
+    $("btn-hint-report").onclick = openReport;
+    $("btn-hint-hide").onclick = hideHint;
+    $("btn-settings").onclick = openSettings;
+    $("btn-settings-close").onclick = () => { $("settings").hidden = true; };
+    $("btn-report-open").onclick = openReport;
+    $("btn-report-make").onclick = makeReport;
+    $("btn-report-close").onclick = () => { $("report").hidden = true; };
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape") return;
+      if (!$("report").hidden) $("report").hidden = true;
+      else if (!$("settings").hidden) $("settings").hidden = true;
+      else if (!$("net").hidden) closeNet();
+    });
     document.querySelectorAll(".tab").forEach((b) => { b.onclick = () => showTab(b.dataset.tab); });
     document.addEventListener("contextmenu", (e) => e.preventDefault());
 
@@ -729,6 +851,7 @@
     renderNick();
 
     await refreshFivem();
+    loadHint();
     refreshStatus();
     // news.json may bring a new server address: check the status again right after it. Then (0.3.4) the connection
     // check once, quietly: about a second and ~70 KB; only a problem shows up (the line under «Играть»), and «Играть»
@@ -773,6 +896,9 @@
     const card = q.get("card");
     if (card === "play" || card === "check") {
       setTimeout(() => document.getElementById(card === "play" ? "play" : "btn-net").click(), 1500);
+    }
+    if (card === "report" || card === "settings") {
+      setTimeout(() => document.getElementById(card === "report" ? "btn-report-open" : "btn-settings").click(), 1500);
     }
     const data = {
       get_config: {
@@ -872,6 +998,32 @@
         if (q.get("pick") === "wrong") throw "not_fivem";
         if (q.get("pick") === "ok") return { installed: true, path: "D:\\Games\\FiveM\\FiveM.exe", foundBy: "manual" };
         return null;
+      }
+      // 0.5.0: ?hint=fixup|low_disk|two_gta|onedrive|slow_disk|crash — the line after a FiveM crash; &card=report —
+      // the support report card, &card=settings — the settings card
+      if (cmd === "crash_hint") {
+        const key = q.get("hint");
+        if (!key) return null;
+        const detail = { fixup: "prop_tree_01.ydr", low_disk: "C:", two_gta: "D:\\Games\\Grand Theft Auto V" }[key] || "";
+        return { key, detail, gb: key === "low_disk" ? 3 : 0, at: 1794950000 };
+      }
+      if (cmd === "support_preview") {
+        await new Promise((r) => setTimeout(r, 400));
+        return {
+          files: [
+            { name: "net-check.log", size: 48213, at: 1794950000 },
+            { name: "fivem-search.log", size: 9120, at: 1794950000 },
+            { name: "CitizenFX_log_2026-11-18T134401.log", size: 812004, at: 1794950000 },
+            { name: "85f04185-913c-47f4-a763-f425b702f3d7.dmp.gamelog", size: 116010, at: 1794950000 },
+            { name: "system.txt", size: 0, at: 1794950000 }
+          ],
+          dump: { name: "85f04185-913c-47f4-a763-f425b702f3d7.dmp", size: 18071304, at: 1794950000 },
+          dumpsToday: 2
+        };
+      }
+      if (cmd === "support_create") {
+        await new Promise((r) => setTimeout(r, 600));
+        return { path: "C:\\Users\\<user>\\Desktop\\COLDZ-support-20261118-223005.zip", name: "COLDZ-support-20261118-223005.zip", size: 1000 };
       }
       if (cmd === "open_external") { console.log("[preview]", cmd); return "ok"; }
       return data[cmd];
