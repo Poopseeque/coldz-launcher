@@ -1747,7 +1747,6 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(PendingUpdate(Mutex::new(None)))
         .manage(ReadyUpdate(std::sync::Mutex::new(None)))
-        .manage(ReadyUpdate(std::sync::Mutex::new(None)))
         .setup(|app| {
             // Address from the last downloaded news.json, so the status works before a new download.
             let cache = cache_dir(app.handle()).map(|d| d.join("news.json"));
