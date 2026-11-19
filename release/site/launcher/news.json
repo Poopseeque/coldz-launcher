@@ -79,10 +79,10 @@
         "pt-BR": "Chat"
       },
       "text": {
-        "ru": "Ругаться можно. Оскорблять родных и семью нельзя: мут до месяца, дальше бан.",
-        "en": "Swearing is fine. Insulting someone's family is not: a mute for up to a month, then a ban.",
-        "es": "Puedes decir palabrotas. Insultar a la familia de alguien, no: silencio de hasta un mes y después ban.",
-        "pt-BR": "Pode xingar. Ofender a família de alguém, não: mute de até um mês e depois ban."
+        "ru": "Ругаться можно. Оскорблять и упоминать чужих родных и семью нельзя: мут до месяца, дальше бан.",
+        "en": "Swearing is fine. Insulting or bringing up someone's family is not: a mute for up to a month, then a ban.",
+        "es": "Puedes decir palabrotas. Insultar o mencionar a la familia de alguien, no: silencio de hasta un mes y después ban.",
+        "pt-BR": "Pode xingar. Ofender ou mencionar a família de alguém, não: mute de até um mês e depois ban."
       }
     },
     {
@@ -370,5 +370,5 @@
       }
     }
   ],
-  "signedAt": "2026-11-19T20:10:30Z"
+  "signedAt": "2026-11-19T22:06:23Z"
 }
