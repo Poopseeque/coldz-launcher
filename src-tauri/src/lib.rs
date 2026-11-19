@@ -22,6 +22,7 @@ mod nick;
 mod route;
 mod running;
 mod signin;
+mod startup;
 mod support;
 mod tunnel;
 mod window;
@@ -1738,6 +1739,15 @@ fn minimize_window(app: AppHandle) {
 pub fn run() {
     // TLS crypto for https requests (news, cfx.re list, updates).
     let _ = rustls::crypto::ring::default_provider().install_default();
+    // 0.5.2 (startup.rs): never a silent exit at start; without WebView2 a message with the download page
+    startup::install_panic_hook(portable_dir());
+    if !startup::check_webview2(portable_dir()) {
+        return;
+    }
+    // Smoke test of the start-error message (README 7л): the same path as a real start-up panic.
+    if std::env::var_os("COLDZ_FAKE_START_PANIC").is_some() {
+        panic!("COLDZ_FAKE_START_PANIC");
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             // 0.5.0: also out of the tray

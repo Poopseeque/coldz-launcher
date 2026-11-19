@@ -676,6 +676,25 @@ onedrive|slow_disk|crash`, `&card=report`, `&card=settings`.
 До любого варианта: в истории git остаются старые файлы (адреса релеев, `relay/tunnel/README.md` до 0.4.0); при
 разделении в публичный репозиторий переносится только `news/` без истории.
 
+## 7л. Лаунчер «не запускается вообще»: WebView2 и ошибка при старте (ветка `fix/start-error-message`, после 0.5.1)
+
+**Что было.** 20.11 стример: «ColdZ вообще не запускается, даже процесс не создаёт». Окно лаунчера рисует WebView2
+(браузер Windows). Без него `tauri::Builder::build()` падает, release-сборка без консоли, и процесс исчезает за доли
+секунды молча. Установщик проверяет только ключ реестра EdgeUpdate `pv`: если WebView2 удалили «чисткой» Windows, а
+ключ остался, установщик WebView2 не ставит; портативный zip WebView2 не ставит никогда. Так же молча выходил 0.5.0.
+
+**Что делает лаунчер** (`src-tauri/src/startup.rs`), до запуска Tauri:
+
+1. `tauri::webview_version()`: нет WebView2 или он сломан — окно Windows на языке системы (RU, EN, ES, PT): «нужен
+   компонент Microsoft Edge WebView2 Runtime», кнопка «Да» открывает страницу Microsoft
+   `https://go.microsoft.com/fwlink/p/?LinkId=2124703`. Строка в `start-error.log`.
+2. Любая паника пишется в `start-error.log` (папка настроек: `%APPDATA%\com.coldz.launcher\` или `data\` портативной).
+   Паника в главном потоке (старт, `build()`) ещё и показывает окно с текстом ошибки и путём к журналу (Ctrl+C в окне
+   копирует текст), чтобы игрок мог прислать его в группу.
+
+**Проверка без поломки ПК:** `COLDZ_FAKE_NO_WEBVIEW2=1` (окно про WebView2), `COLDZ_FAKE_START_PANIC=1` (окно ошибки
+старта). Тест `startup`: языки, тексты без длинных тире.
+
 ## Как устроено
 
 ```
@@ -692,6 +711,7 @@ src-tauri/src/netcheck.rs проверка связи: адреса Cfx.re, ко
 src-tauri/src/signin.rs   резервный маршрут входа: группы адресов входа FiveM (Rockstar, Cfx.re), блок в hosts, чистка списка из news.json (раздел 7г)
 src-tauri/src/tunnel.rs   туннель к релею с закреплённым сертификатом и локальная пересылка 127.0.0.1:443 (раздел 7г)
 src-tauri/src/hosts.rs    правка файла hosts Windows повышенной копией лаунчера (--coldz-hosts), один запрос Windows (раздел 7г)
+src-tauri/src/startup.rs  до Tauri: нет WebView2 — окно со ссылкой Microsoft; паника при старте — окно и start-error.log (раздел 7л)
 relay/tunnel/             конфигурация nginx и установка туннеля на релеях Варшава и Алматы (раздел 7г)
 src-tauri/tauri.conf.json окно, установщик, адрес обновлений и публичный ключ
 scripts/build.ps1         сборка одной командой (npm run build / npm run release)
