@@ -56,6 +56,9 @@ struct Link {
     /// Empty = button hidden.
     #[serde(default)]
     url: String,
+    /// Window languages the button shows in (ru, en, es, pt-BR); empty = all. 20.11: Instagram per language.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    langs: Vec<String>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -2109,6 +2112,49 @@ mod tests {
         assert!(v.get("rules").and_then(|r| r.as_array()).map_or(false, |r| !r.is_empty()));
         let own = with_rules(serde_json::json!({ "items": [], "rules": [{ "title": { "ru": "x" }, "text": { "ru": "y" } }] }));
         assert_eq!(own["rules"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn instagram_and_tiktok_links_per_window_language() {
+        // 20.11: Instagram per window language: ru and es — the main account, en — _en, pt-BR — _br; one button each
+        let c = config();
+        for (lang, url) in [
+            ("ru", "https://www.instagram.com/coldz_gta5_dayz/"),
+            ("es", "https://www.instagram.com/coldz_gta5_dayz/"),
+            ("en", "https://www.instagram.com/coldz_gta5_dayz_en/"),
+            ("pt-BR", "https://www.instagram.com/coldz_gta5_dayz_br/"),
+        ] {
+            let shown: Vec<&Link> = c
+                .links
+                .iter()
+                .filter(|l| l.icon == "instagram" && (l.langs.is_empty() || l.langs.iter().any(|x| x == lang)))
+                .collect();
+            assert_eq!(shown.len(), 1, "{lang}");
+            assert_eq!(shown[0].url, url, "{lang}");
+        }
+        // 20.11: TikTok the same way: ru and es — @coldz_gta5, en — _en, pt-BR — _br
+        for (lang, url) in [
+            ("ru", "https://www.tiktok.com/@coldz_gta5"),
+            ("es", "https://www.tiktok.com/@coldz_gta5"),
+            ("en", "https://www.tiktok.com/@coldz_gta5_en"),
+            ("pt-BR", "https://www.tiktok.com/@coldz_gta5_br"),
+        ] {
+            let shown: Vec<&Link> = c
+                .links
+                .iter()
+                .filter(|l| l.icon == "tiktok" && (l.langs.is_empty() || l.langs.iter().any(|x| x == lang)))
+                .collect();
+            assert_eq!(shown.len(), 1, "tiktok {lang}");
+            assert_eq!(shown[0].url, url, "tiktok {lang}");
+        }
+        for l in &c.links {
+            for x in &l.langs {
+                assert!(["ru", "en", "es", "pt-BR"].contains(&x.as_str()), "unknown lang {x}");
+            }
+        }
+        // langs reaches the window (get_config serializes Link)
+        let v = serde_json::to_value(&c.links).unwrap();
+        assert!(v.as_array().unwrap().iter().any(|l| l["langs"] == serde_json::json!(["en"])));
     }
 
     #[test]

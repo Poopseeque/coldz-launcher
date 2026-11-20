@@ -64,6 +64,7 @@
     renderRestart();
     renderSpark();
     renderUpdate();
+    if (cfg) renderLinks();   // 20.11: Instagram button follows the window language
   }
 
   // ------------------------------------------------------------ status + address
@@ -867,11 +868,13 @@
   const SVG_NS = "http://www.w3.org/2000/svg";
 
   // Social buttons from launcher.config.json "links"; empty url = not shown.
+  // "langs" (20.11, Instagram): only in those window languages; none = every language
   function renderLinks() {
     const nav = $("socials");
     nav.replaceChildren();
-    for (const link of cfg.links || []) {
+    for (const link of (cfg && cfg.links) || []) {
       if (!link.url) continue;
+      if (Array.isArray(link.langs) && link.langs.length && !link.langs.includes(lang)) continue;
       const btn = el("button", "social");
       btn.title = link.label;
       btn.setAttribute("aria-label", link.label);
@@ -1015,7 +1018,12 @@
         links: [
           { icon: "vk", label: "ВКонтакте", url: "https://vk.ru/coldz_server" },
           { icon: "youtube", label: "YouTube", url: "https://youtube.com/@coldzgta5" },
-          { icon: "tiktok", label: "TikTok", url: "https://www.tiktok.com/@coldz_gta5" },
+          { icon: "tiktok", label: "TikTok", langs: ["ru", "es"], url: "https://www.tiktok.com/@coldz_gta5" },
+          { icon: "tiktok", label: "TikTok", langs: ["en"], url: "https://www.tiktok.com/@coldz_gta5_en" },
+          { icon: "tiktok", label: "TikTok", langs: ["pt-BR"], url: "https://www.tiktok.com/@coldz_gta5_br" },
+          { icon: "instagram", label: "Instagram", langs: ["ru", "es"], url: "https://www.instagram.com/coldz_gta5_dayz/" },
+          { icon: "instagram", label: "Instagram", langs: ["en"], url: "https://www.instagram.com/coldz_gta5_dayz_en/" },
+          { icon: "instagram", label: "Instagram", langs: ["pt-BR"], url: "https://www.instagram.com/coldz_gta5_dayz_br/" },
           { icon: "telegram", label: "Telegram", url: "" }
         ]
       },
