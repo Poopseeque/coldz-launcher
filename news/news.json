@@ -188,6 +188,23 @@
       }
     },
     {
+      "id": "launcher-0.5.3",
+      "date": "2026-11-20",
+      "pinned": false,
+      "title": {
+        "ru": "Лаунчер 0.5.3",
+        "en": "Launcher 0.5.3",
+        "es": "Launcher 0.5.3",
+        "pt-BR": "Launcher 0.5.3"
+      },
+      "body": {
+        "ru": "Убран график онлайна под счётчиком игроков. В окне появились кнопки Instagram и TikTok на вашем языке. Лаунчер обновится сам.",
+        "en": "The online graph under the player counter is gone. Instagram and TikTok buttons in your language are now in the window. The launcher updates itself.",
+        "es": "Se quitó el gráfico de jugadores en línea bajo el contador. En la ventana hay botones de Instagram y TikTok en tu idioma. El launcher se actualiza solo.",
+        "pt-BR": "O gráfico de online sob o contador de jogadores foi removido. A janela ganhou botões de Instagram e TikTok no seu idioma. O launcher se atualiza sozinho."
+      }
+    },
+    {
       "id": "update-2026-11-19-alpha51",
       "date": "2026-11-19",
       "pinned": false,
@@ -427,5 +444,5 @@
       }
     }
   ],
-  "signedAt": "2026-11-20T04:02:19Z"
+  "signedAt": "2026-11-20T04:17:54Z"
 }
