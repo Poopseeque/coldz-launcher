@@ -3,6 +3,18 @@
 Новые версии сверху. Первая строка записи: текст для `npm run release -- -Notes "…"` (он попадает в `latest.json`
 и в описание выпуска на GitHub), ниже подробности. Порядок выпуска: README, раздел 5, и `docs/ПРАВИЛА.md`.
 
+## 0.5.4
+
+- Перед «Играть» лаунчер ставит FiveM сборку игры сервера: данные сборки FiveM качает в своём окне до игры, а не внутри игры.
+- EN: Before Play the launcher sets FiveM to the server's game build: FiveM downloads the build data in its own window before the game, not inside it.
+- ES: Antes de Jugar, el lanzador pone en FiveM la versión del juego del servidor: FiveM descarga los datos en su propia ventana antes del juego, no dentro de él.
+- PT-BR: Antes de Jogar, o launcher define no FiveM a versão do jogo do servidor: o FiveM baixa os dados na própria janela antes do jogo, não dentro dele.
+- Подробнее: `vars` из `/info.json` выбранного маршрута (`sv_enforceGameBuild`, `sv_defaultGameBuild`, `sv_pureLevel`,
+  `sv_poolSizesIncrease`) → `SavedBuildNumber`, `DefaultBuild`, `PureLevel`, `PoolSizesIncrease` в
+  `FiveM.app\CitizenFX.ini`, только если FiveM не запущен и строки отличаются; остальные строки (`IVPath`) и кодировка не
+  меняются; ошибки только в `fivem-search.log`. Если файл записан, под «Играть» строка: нажать «Continue» в окне
+  обновления данных FiveM и дождаться загрузки (README 7м).
+
 ## 0.5.3
 
 - Убран график онлайна; кнопки Instagram и TikTok по языку; новости ALPHA 5.2.
