@@ -244,9 +244,76 @@
       $("fivem-hint").hidden = false;
       return;
     }
+    // 0.5.5: the first join: how much FiveM will download from our file server and about how long
+    // (src-tauri/src/firstjoin.rs); a returning player: as before, or «updates take a minute or two» (news.json)
+    const jt = fivemInstalled ? joinText() : null;
+    if (jt) {
+      box.dataset.state = join.advice.kind === "first" ? "first" : "ok";
+      text.textContent = jt;
+      actions.hidden = true;
+      return;
+    }
     box.dataset.state = fivemInstalled ? "ok" : "missing";
     text.textContent = t(fivemInstalled ? "fivem_found" : "fivem_missing");
     actions.hidden = fivemInstalled;
+  }
+
+  // ------------------------------------------------------------ first join + file server speed (0.5.5, firstjoin.rs)
+  // FiveM downloads ~6 GB of server files from our CDN at the first join, on its own loading screen (the launcher never
+  // does it for FiveM). The launcher measures the speed to the CDN (a test file, at most once in 10 minutes, stopped by
+  // «Играть») and says it honestly under «Играть». null | { first, advice: { kind, gb, minutes, slow },
+  // cdn: { state: "off"|"none"|"ok"|"fail", mbps, slow, at } }
+  let join = null;
+  const speed = { running: null };
+  // measure: download the test file if it is time (after the start check, «Проверить связь»); false: what is known
+  function refreshJoin(measure) {
+    if (measure && speed.running) return speed.running;
+    const p = invoke("join_info", { measure: !!measure })
+      // a quick answer that comes while a measurement runs would carry the older speed: the measurement brings both
+      .then((j) => { if (measure || !speed.running) join = j || null; })
+      .catch((e) => { console.info("join info:", e); })
+      .finally(() => {
+        if (measure) speed.running = null;
+        renderFivem();
+        renderNet();
+      });
+    if (measure) {
+      speed.running = p;
+      renderNet();
+    }
+    return p;
+  }
+  function formatNumber(n, digits) {
+    try { return new Intl.NumberFormat(lang, { maximumFractionDigits: digits || 0 }).format(n); } catch { return String(n); }
+  }
+  // «20 минут» / «1 минута» / «2 минуты»: the plural form of the window's language (min_one, min_few, ...)
+  function minutesText(n) {
+    let form = "other";
+    try { form = new Intl.PluralRules(lang).select(n); } catch { /* old engine: "other" */ }
+    const own = I18N[lang] || I18N.ru;
+    return t(own["min_" + form] != null ? "min_" + form : "min_other", { n: formatNumber(n) });
+  }
+  function joinText() {
+    const a = join && join.advice;
+    if (!a) return null;
+    if (a.kind === "first") {
+      const g = formatNumber(a.gb, 1);
+      let s = a.minutes != null ? t("join_first", { g, m: minutesText(a.minutes) }) : t("join_first_nospeed", { g });
+      if (a.slow) s += " " + t("join_slow");
+      return s;
+    }
+    if (a.kind === "update") return t("fivem_found") + " " + t("join_update");
+    return null;
+  }
+  // «Проверить связь»: «Сервер файлов: 4,2 МБ/с» (or «недоступен»); no line when the measuring is off
+  function cdnLine(line, running) {
+    const c = join && join.cdn;
+    if (!c || c.state === "off") return;
+    const name = t("svc_cdn");
+    if (running || speed.running) line(name, "wait", "");
+    else if (c.state === "ok" && c.mbps != null) line(name, c.slow ? "slow" : "ok", t("net_cdn_speed", { n: formatNumber(c.mbps, c.mbps < 10 ? 1 : 0) }));
+    else if (c.state === "fail") line(name, "fail", t("net_cdn_fail"));
+    else line(name, "none", t("net_cdn_none"));
   }
 
   // ------------------------------------------------------------ game file for the server (0.5.4, storage.rs)
@@ -593,6 +660,8 @@
       if (running) line(t("svc_reserve"), "wait", "");
       else line(t("svc_reserve"), r.reserve ? "ok" : "fail", t(r.reserve ? "net_reserve_ok" : "net_reserve_fail"));
     }
+    // 0.5.5: the speed to our file server (src-tauri/src/firstjoin.rs)
+    cdnLine(line, running);
     // 0.4.0: the FiveM sign-in (Rockstar) and the backup route for it (src-tauri/src/signin.rs); no lines when
     // news.json has no sign-in setup
     const si = r && r.signin;
@@ -733,6 +802,8 @@
     try {
       const res = await invoke("play");
       const action = (res && res.action) || "launched";
+      // 0.5.5: FiveM started: the launcher has set its first-join mark (the line follows the cache folder from now on)
+      if (action !== "starting") refreshJoin(false);
       if (action === "starting") {
         holdMs = 1500;
         showFivemMessage("fivem_starting", 15000);
@@ -967,8 +1038,9 @@
     $("btn-storage-cancel").onclick = () => { invoke("storage_cancel").catch(() => {}); };
     $("btn-storage-skip").onclick = () => { storageUi = null; play({ skipStorage: true }); };
     $("btn-update").onclick = installUpdate;
-    $("btn-net").onclick = () => { openNet(false); runNetCheck(); };
-    $("btn-net-recheck").onclick = () => { runNetCheck(); };
+    $("btn-net").onclick = () => { openNet(false); runNetCheck().then(() => refreshJoin(true)); };
+    // 0.5.5: not while the card came from «Играть» (the speed test never runs during «Играть»)
+    $("btn-net-recheck").onclick = () => { runNetCheck().then(() => { if (!net.fromPlay) refreshJoin(true); }); };
     $("btn-net-retry").onclick = () => { runNetCheck(); };
     $("btn-net-details").onclick = () => { openNet(false); };
     $("btn-net-close").onclick = closeNet;
@@ -1014,7 +1086,8 @@
     // news.json may bring a new server address: check the status again right after it. Then (0.3.4) the connection
     // check once, quietly: about a second and ~70 KB; only a problem shows up (the line under «Играть»), and «Играть»
     // within a minute of a good result does not wait for a new one.
-    loadNews().then(() => { refreshStatus(); runNetCheck(); refreshInfo(); });
+    // 0.5.5: the first-join line at once (news.json may change the size), the file-server speed after the check
+    loadNews().then(() => { refreshStatus(); refreshJoin(false); runNetCheck().then(() => refreshJoin(true)); refreshInfo(); });
     setTimeout(checkUpdate, 1500);
     T.event.listen("update-ready", () => { updateReady = true; renderUpdate(); }).catch(() => {});
     T.event.listen("storage-progress", (e) => onStorageProgress(e.payload)).catch(() => {});
@@ -1027,7 +1100,7 @@
     // Endless animations pause while the window is not active (e.g. during the game).
     const setIdle = (idle) => document.body.classList.toggle("idle", idle);
     setIdle(!document.hasFocus());
-    window.addEventListener("focus", () => { setIdle(false); refreshFivem(); refreshStatus(); });
+    window.addEventListener("focus", () => { setIdle(false); refreshFivem(); refreshStatus(); if (join) refreshJoin(false); });
     window.addEventListener("blur", () => setIdle(true));
   }
 
@@ -1051,6 +1124,8 @@
   // 0.4.0: ?net=signin — the FiveM sign-in (Rockstar) is cut, the backup route answers (the button); &tunnel=0 — the
   // route does not answer either; &route=on — the route is already on (the «Выключить» button); the button itself
   // toggles the preview state (&signin=cancel — the Windows prompt is declined).
+  // 0.5.5: ?join=first — the first join (the line under «Играть»), ?join=update — a returning player with news.json
+  // updateHint; &speed=<MB/s> (default 8.9) | fail | none | off — the file-server speed (with &card=check: its line).
   function previewTauri() {
     const q = new URLSearchParams(location.search);
     let netCalls = 0;
@@ -1139,6 +1214,24 @@
           if (fn) fn({ payload: i <= 10 ? { done: 300000000 + i * 112328832, total: 1423288320, phase: "download" } : { done: (i - 10) * 711644160, total: 1423288320, phase: "check" } });
         }
         return null;
+      }
+      if (cmd === "join_info") {
+        if (args && args.measure) await new Promise((r) => setTimeout(r, 1200));
+        const kind = q.get("join") || "none";
+        const sp = q.get("speed");
+        const state = sp === "off" ? "off" : sp === "fail" ? "fail" : sp === "none" ? "none" : "ok";
+        const mbps = state === "ok" ? Number(sp || 8.9) : null;
+        const gb = 6;
+        // the same rounding as firstjoin.rs minutes(): 5-minute steps above 10, 10-minute steps above 60
+        const raw = mbps ? Math.max(1, Math.ceil(gb * 1000 / mbps / 60)) : null;
+        const step = raw == null || raw <= 10 ? 1 : raw <= 60 ? 5 : 10;
+        const minutes = raw == null ? null : Math.ceil(raw / step) * step;
+        const slow = mbps != null && mbps < 2;
+        return {
+          first: kind === "first",
+          advice: { kind, gb, minutes: kind === "first" ? minutes : null, slow: kind === "first" && slow },
+          cdn: { state, mbps, slow, at: 1794950000 }
+        };
       }
       if (cmd === "close_fivem") return q.get("close") === "fail" ? [2, 1] : [3, 0];
       if (cmd === "choose_route") {

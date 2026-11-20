@@ -272,6 +272,9 @@ button, select { font: inherit; color: inherit; }
 .fivem[data-state="net"] .fivem__text { color: #ffd7d9; }
 .fivem[data-state="net"] .fivem__text::before { content: "✗ "; color: var(--blood-hi); }
 .fivem[data-state="netcheck"] .fivem__text { color: var(--muted); }
+/* 0.5.5: the first join (firstjoin.rs): how much FiveM downloads and about how long, instead of «можно играть» */
+.fivem[data-state="first"] .fivem__text { color: var(--ink); font-size: 13px; }
+.fivem[data-state="first"] .fivem__text::before { content: "↓ "; color: var(--amber); font-weight: 700; }
 .fivem__links { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 5px 0 0; }
 .fivem__links .address__copy:disabled { color: var(--faint); cursor: default; text-decoration: none; }
 .fivem__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
@@ -343,6 +346,9 @@ button, select { font: inherit; color: inherit; }
 .netlist li[data-state="ok"]::before { content: "✓"; color: var(--green); }
 .netlist li[data-state="fail"]::before { content: "✗"; color: var(--blood-hi); }
 .netlist li[data-state="none"]::before { color: var(--faint); }
+/* 0.5.5: the file server answers, but slower than 2 MB/s */
+.netlist li[data-state="slow"]::before { content: "!"; color: var(--amber); font-weight: 700; }
+.netlist li[data-state="slow"] .netlist__state { color: #ffe3a3; }
 .netlist__state { color: var(--faint); white-space: nowrap; }
 .netlist li[data-state="fail"] .netlist__state { color: #ffb4b8; }
 .netlist .netlist__server { margin-top: 4px; padding-top: 6px; border-top: 1px dashed rgba(255, 255, 255, .08); }

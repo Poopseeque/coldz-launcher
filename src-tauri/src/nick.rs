@@ -84,6 +84,11 @@ pub struct Settings {
     pub window: Option<crate::window::Geometry>,
     /// 0.5.0: «Сворачивать в трей»: minimize hides the window to the tray icon next to the clock.
     pub tray: bool,
+    /// 0.5.5 (firstjoin.rs): true after «Играть» started FiveM; false: written by the first «Играть» of 0.5.5 for a
+    /// player who has not pressed it before. None: not written yet (an older launcher's file).
+    pub joined_once: Option<bool>,
+    /// 0.5.5 (firstjoin.rs): the last speed test of our file server (not repeated within 10 minutes, also across starts).
+    pub cdn_speed: Option<crate::firstjoin::Record>,
 }
 
 pub fn load(path: &Path) -> Settings {
@@ -208,10 +213,13 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("coldz-nick-test-{}", std::process::id()));
         let path = dir.join("settings.json");
         assert_eq!(load(&path), Settings::default());
-        let s = Settings { nick: "Снег".into(), launcher_id: new_launcher_id(), fivem_path: r"D:\Игры\FiveM\FiveM.exe".into(), last_route: "177.3.198.34:30120".into(), signin_route: "on".into(), window: Some(crate::window::Geometry { x: 10.0, y: 20.0, w: 1200.0, h: 700.0, maximized: false }), tray: true };
+        let s = Settings { nick: "Снег".into(), launcher_id: new_launcher_id(), fivem_path: r"D:\Игры\FiveM\FiveM.exe".into(), last_route: "177.3.198.34:30120".into(), signin_route: "on".into(), window: Some(crate::window::Geometry { x: 10.0, y: 20.0, w: 1200.0, h: 700.0, maximized: false }), tray: true, joined_once: Some(true), cdn_speed: Some(crate::firstjoin::Record { url: "https://cdn.coldz.vip/speed/8mb.bin".into(), at: 1_800_000_000, mbps: Some(4.5), bytes: 8_388_608, problem: String::new() }) };
         save(&path, &s).unwrap();
         assert_eq!(load(&path), s);
-        assert!(std::fs::read_to_string(&path).unwrap().contains("\"fivemPath\""));
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("\"fivemPath\""));
+        // 0.5.5: the first-join mark and the speed test
+        assert!(text.contains("\"joinedOnce\": true") && text.contains("\"cdnSpeed\""), "{text}");
         // settings.json of 0.3.0–0.3.1 (no fivemPath) still loads: the nick and id stay
         std::fs::write(&path, r#"{"nick":"Снег","launcherId":"abc"}"#).unwrap();
         assert_eq!(load(&path), Settings { nick: "Снег".into(), launcher_id: "abc".into(), ..Default::default() });

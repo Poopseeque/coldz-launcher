@@ -18,8 +18,11 @@
 //!     downloads the build data in its start window, not inside the game,
 //!   * 0.5.4: when the server's build needs FiveM's override `update.rpf` (storage.rs), downloads it into FiveM's cache
 //!     before FiveM starts, from FiveM's own address, continuing after a break, checked by SHA-1,
+//!   * 0.5.5: says under «Играть» how much the first join downloads and about how long it takes, from the speed to our
+//!     file server (firstjoin.rs: a test file of `cdnSpeedUrl`, once in 10 minutes; FiveM's own download is not touched),
 //!   * updates itself through the Tauri updater (signed with our own key).
 
+mod firstjoin;
 mod fivem;
 mod gamebuild;
 mod hosts;
@@ -109,6 +112,14 @@ struct Config {
     /// `gameBuild.preset` in news.json wins.
     #[serde(default)]
     game_build: GameBuildSwitch,
+    /// 0.5.5 (firstjoin.rs): the test file on our file server for the speed line; "" = no measuring. `cdnSpeedUrl` in
+    /// news.json wins (an empty one there switches it off).
+    #[serde(default)]
+    cdn_speed_url: String,
+    /// 0.5.5 (firstjoin.rs): about how many GB the first join downloads from our file server; 0 = no first-join line.
+    /// `firstJoinGb` in news.json wins.
+    #[serde(default)]
+    first_join_gb: f64,
 }
 
 /// 0.5.4: the remote switch for writing CitizenFX.ini (gamebuild.rs).
@@ -229,6 +240,18 @@ fn remote_preset() -> &'static RwLock<Option<bool>> {
     S.get_or_init(|| RwLock::new(None))
 }
 
+/// 0.5.5: `cdnSpeedUrl`, `firstJoinGb`, `updateHint` from news.json (firstjoin.rs). Default: no keys, the built-in ones.
+fn remote_join() -> &'static RwLock<firstjoin::Feed> {
+    static S: OnceLock<RwLock<firstjoin::Feed>> = OnceLock::new();
+    S.get_or_init(|| RwLock::new(firstjoin::Feed::default()))
+}
+
+/// The test file, the first-join size and the update line in use: news.json wins over launcher.config.json.
+fn join_setup() -> firstjoin::Setup {
+    let feed = remote_join().read().map(|g| g.clone()).unwrap_or_default();
+    firstjoin::setup(&feed, &config().cdn_speed_url, config().first_join_gb)
+}
+
 /// `gameBuild.preset` of a news file: Some only for a real true/false.
 fn preset_of_feed(v: &serde_json::Value) -> Option<bool> {
     v.get("gameBuild").and_then(|g| g.get("preset")).and_then(|p| p.as_bool())
@@ -289,6 +312,11 @@ fn apply_feed(v: &serde_json::Value) {
     // 0.5.4: `gameBuild: {"preset": false}` — CitizenFX.ini is not touched; missing or not true/false = built-in
     if let Ok(mut slot) = remote_preset().write() {
         *slot = preset_of_feed(v);
+    }
+    // 0.5.5: `cdnSpeedUrl` ("" = no measuring), `firstJoinGb` (0 = no first-join line), `updateHint`; missing or bad =
+    // launcher.config.json
+    if let Ok(mut slot) = remote_join().write() {
+        *slot = firstjoin::Feed::of(v);
     }
 }
 
@@ -357,6 +385,10 @@ fn last_route(app: &AppHandle) -> String {
 /// answers (route.rs). Err("no_address"): no address yet. A cfx.re/join code is not asked: Cfx.re finds the server.
 #[tauri::command]
 async fn choose_route(app: AppHandle) -> Result<route::Route, String> {
+    // 0.5.5: «Играть» has started: the file-server speed test stops and waits (firstjoin.rs)
+    if let Ok(mut g) = play_pressed().lock() {
+        *g = Some(Instant::now());
+    }
     let Some(address) = effective_address() else {
         return Err("no_address".into());
     };
@@ -776,6 +808,23 @@ fn sync_game_build(app: &AppHandle, exe: &std::path::Path, address: &str) -> boo
 /// Errors for the UI: no_address, fivem_missing, fivem_stuck (FiveM processes without a game window), launch_failed.
 #[tauri::command]
 fn play(app: AppHandle) -> Result<PlayResult, String> {
+    let result = start_fivem(app.clone());
+    // 0.5.5: FiveM started with the link (or got it): the launcher's mark of the first join (firstjoin.rs)
+    if matches!(&result, Ok(r) if r.action != "starting") {
+        mark_joined(&app);
+    }
+    result
+}
+
+/// settings.json `joinedOnce` (0.5.5): written once, after «Играть» started FiveM.
+fn mark_joined(app: &AppHandle) {
+    let already = settings_path(app).map(|p| nick::load(&p).joined_once == Some(true)).unwrap_or(false);
+    if !already {
+        let _ = update_settings(app, |s| s.joined_once = Some(true));
+    }
+}
+
+fn start_fivem(app: AppHandle) -> Result<PlayResult, String> {
     // 0.3.5: the route chosen right before (choose_route): the main server or a reserve route
     let Some(address) = route_address() else {
         return Err("no_address".into());
@@ -1479,6 +1528,11 @@ async fn nick_endpoint(target: &Target) -> Option<String> {
 async fn send_nick(app: AppHandle, nick: String) -> Result<nick::NickResult, String> {
     let wanted = nick::check(&nick).map_err(str::to_string)?;
     let (saved, _) = update_settings(&app, |s| {
+        // 0.5.5 (firstjoin.rs): the first «Играть» of 0.5.5 writes the mark: an id from an older version means the
+        // player has pressed «Играть» before; FiveM started sets it to true (`mark_joined`)
+        if s.joined_once.is_none() {
+            s.joined_once = Some(firstjoin::joined_before(None, &s.launcher_id));
+        }
         if s.launcher_id.is_empty() {
             s.launcher_id = nick::new_launcher_id();
         }
@@ -1665,6 +1719,74 @@ fn local_news(cache: Option<PathBuf>) -> (&'static str, serde_json::Value) {
     ("bundled", serde_json::from_str(BUNDLED_NEWS).unwrap_or_default())
 }
 
+// ---------------------------------------------------------------- first join and the file-server speed (0.5.5)
+
+/// When «Играть» was pressed last (`choose_route`): the speed test stops, and does not start for a while after it.
+fn play_pressed() -> &'static std::sync::Mutex<Option<Instant>> {
+    static AT: OnceLock<std::sync::Mutex<Option<Instant>>> = OnceLock::new();
+    AT.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+fn pressed_at() -> Option<Instant> {
+    play_pressed().lock().ok().and_then(|g| *g)
+}
+
+/// The last measurement (settings.json `cdnSpeed`), kept across starts.
+fn saved_speed(app: &AppHandle) -> Option<firstjoin::Record> {
+    settings_path(app).and_then(|p| nick::load(&p).cdn_speed)
+}
+
+/// Is this the player's first join to COLDZ (firstjoin.rs `is_first`): the launcher's mark and whether FiveM's
+/// `FiveM.app\data\server-cache-priv` exists (only that: the launcher never reads or changes FiveM's cache).
+fn first_join_now(app: &AppHandle) -> bool {
+    let s = settings_path(app).map(|p| nick::load(&p)).unwrap_or_default();
+    let joined = firstjoin::joined_before(s.joined_once, &s.launcher_id);
+    let app_dir = fivem_exe_quiet(app).map(|exe| support::app_dir(&exe));
+    firstjoin::is_first(joined, firstjoin::cache_of(app_dir.as_deref()))
+}
+
+/// Downloads the test file when it is time (firstjoin.rs `due`: once in 10 minutes), not in the 2 minutes after
+/// «Играть» and not while the game file downloads (storage.rs); stops when «Играть» is pressed. Every download goes
+/// to net-check.log, the result to settings.json. Returns the measurement in use (maybe the last one).
+async fn cdn_measure(app: &AppHandle, url: &str) -> Option<firstjoin::Record> {
+    static ONE: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    // one at a time: a second caller (start and «Проверить связь») then sees the fresh result
+    let _one = ONE.get_or_init(|| tokio::sync::Mutex::new(())).lock().await;
+    let saved = saved_speed(app);
+    let downloading = storage_cancel_slot().lock().map(|g| g.is_some()).unwrap_or(false);
+    let after_play = pressed_at().map_or(false, |t| t.elapsed() < firstjoin::PLAY_QUIET);
+    if downloading || after_play || !firstjoin::due(saved.as_ref(), url, netcheck::unix_now()) {
+        return saved;
+    }
+    let started = Instant::now();
+    let at = netcheck::unix_now();
+    let m = firstjoin::measure(&download_client(), url, firstjoin::MAX_BYTES, firstjoin::MAX_TIME, || {
+        pressed_at().map_or(false, |t| t > started)
+    })
+    .await;
+    if let Some(log) = net_log_path(app) {
+        fivem::write_log(&log, "замер скорости до сервера файлов", &[m.log_line(url)]);
+    }
+    // «Играть» came first and there is too little to count: as if not measured, the next start asks again
+    if m.problem == Some("aborted") {
+        return saved;
+    }
+    let rec = m.record(url, at);
+    let _ = update_settings(app, |s| s.cdn_speed = Some(rec.clone()));
+    Some(rec)
+}
+
+/// 0.5.5 (firstjoin.rs): the first-join line under «Играть» and the file-server line of «Проверить связь».
+/// `measure`: download the test file now if it is time (`cdn_measure`); false: only what is known.
+#[tauri::command]
+async fn join_info(app: AppHandle, measure: bool) -> firstjoin::JoinInfo {
+    let setup = join_setup();
+    let rec = if measure && !setup.url.is_empty() { cdn_measure(&app, &setup.url).await } else { saved_speed(&app) };
+    let handle = app.clone();
+    let first = tauri::async_runtime::spawn_blocking(move || first_join_now(&handle)).await.unwrap_or(false);
+    firstjoin::info(first, &setup, rec.as_ref())
+}
+
 // ---------------------------------------------------------------- support report and crash hint (0.5.0, support.rs)
 
 /// The FiveM.exe the launcher found (no log entry: this is asked in the background).
@@ -1748,6 +1870,18 @@ async fn support_create(app: AppHandle, with_dump: bool) -> Result<SupportDone, 
             format!("Маршрут к серверу: {}", if s.last_route.is_empty() { "-" } else { &s.last_route }),
             format!("Резервный маршрут входа: {}", if route_on { "включён" } else { "выключен" }),
             format!("FiveM.exe указан вручную: {}", if s.fivem_path.is_empty() { "нет" } else { "да" }),
+            // 0.5.5 (firstjoin.rs)
+            format!("Первый вход на COLDZ (по лаунчеру): {}", if first_join_now(&app) { "да" } else { "нет" }),
+            format!(
+                "Сервер файлов: {}",
+                match &s.cdn_speed {
+                    Some(r) => match r.mbps {
+                        Some(v) => format!("{v:.1} МБ/с ({})", fivem::utc_stamp(r.at)),
+                        None => format!("не измерено: {} ({})", r.problem, fivem::utc_stamp(r.at)),
+                    },
+                    None => "не измерялся".to_string(),
+                }
+            ),
         ];
         let system = support::system_text(&version, &facts, hint.as_ref(), &dumps, &extra);
         let bytes = support::build(&plan, &system, with_dump, &support::Scrub::of_this_pc(keep));
@@ -2102,7 +2236,8 @@ pub fn run() {
             crash_hint,
             server_info,
             support_preview,
-            support_create
+            support_create,
+            join_info
         ])
         .build(tauri::generate_context!())
         .expect("error while building COLDZ launcher")
@@ -2220,6 +2355,23 @@ mod tests {
         apply_feed(&serde_json::json!({ "items": [] }));
         assert_eq!(*remote_preset().read().unwrap(), None);
         assert!(preset_on(*remote_preset().read().unwrap(), &config().game_build));
+
+        // 0.5.5 (firstjoin.rs, the same global slots): no keys in news.json = launcher.config.json
+        let built_in = firstjoin::Setup { url: "https://cdn.coldz.vip/speed/8mb.bin".into(), gb: 6.0, update_hint: false };
+        assert_eq!(join_setup(), built_in);
+        // news.json wins: another test file, another size, the update line
+        apply_feed(&serde_json::json!({ "items": [], "cdnSpeedUrl": "https://cdn2.coldz.vip/speed/8mb.bin", "firstJoinGb": 6.5, "updateHint": true }));
+        assert_eq!(join_setup(), firstjoin::Setup { url: "https://cdn2.coldz.vip/speed/8mb.bin".into(), gb: 6.5, update_hint: true });
+        // an empty address: no measuring; 0 GB: no first-join line
+        apply_feed(&serde_json::json!({ "items": [], "cdnSpeedUrl": "", "firstJoinGb": 0 }));
+        assert_eq!(join_setup(), firstjoin::Setup { url: String::new(), gb: 0.0, update_hint: false });
+        let off = firstjoin::info(true, &join_setup(), None);
+        assert_eq!((off.cdn.state, off.advice.kind), ("off", "none"));
+        // bad values in news.json: the built-in ones again
+        apply_feed(&serde_json::json!({ "items": [], "cdnSpeedUrl": "http://cdn.coldz.vip/x", "firstJoinGb": "6", "updateHint": 1 }));
+        assert_eq!(join_setup(), built_in);
+        apply_feed(&serde_json::json!({ "items": [] }));
+        assert_eq!(join_setup(), built_in);
     }
 
     #[test]
@@ -2328,6 +2480,32 @@ mod tests {
         for key in ["cancelled", "network", "remote", "bad", "space", "disk"] {
             assert!(app.contains(&format!("{key}: \"storage_")), "{key}");
         }
+
+        // 0.5.5 (firstjoin.rs): the first-join line and the file-server line on 4 languages, simple and neutral: no
+        // long dashes, no «VPN», no «ускоритель», nothing about ways around blocks
+        let bad_words = ["—", "–", "vpn", "ускорит", "accelerat", "acelerad", "обход", "bypass"];
+        for key in ["join_first", "join_first_nospeed", "join_slow", "join_update", "min_one", "min_other", "svc_cdn", "net_cdn_speed", "net_cdn_fail", "net_cdn_none"] {
+            let lines: Vec<&str> = i18n.lines().filter(|l| l.trim_start().starts_with(&format!("{key}:"))).collect();
+            assert_eq!(lines.len(), 4, "{key}: ru, en, es, pt-BR");
+            for l in &lines {
+                let low = l.to_lowercase();
+                for bad in bad_words {
+                    assert!(!low.contains(bad), "{bad} in {l}");
+                }
+            }
+        }
+        for l in i18n.lines().filter(|l| l.trim_start().starts_with("join_first")) {
+            assert!(l.contains("{g}"), "the size: {l}");
+            assert_eq!(l.contains("{m}"), l.trim_start().starts_with("join_first:"), "minutes only with the speed: {l}");
+        }
+        // the Russian lines as Alexander wrote them (20.11)
+        assert!(i18n.contains("join_first: \"Первый вход: игра скачает около {g} ГБ файлов сервера, при вашей скорости это примерно {m}. Не закрывайте игру на экране загрузки.\""));
+        assert!(i18n.contains("join_slow: \"Связь с сервером файлов медленная: лучше закрыть торренты и другие загрузки.\""));
+        assert!(i18n.contains("join_update: \"Обновления докачаются за минуту-другую.\""));
+        for key in ["min_few", "min_many"] {
+            assert!(i18n.contains(&format!("{key}: \"{{n}} минут")), "{key}: Russian plural forms");
+        }
+        assert!(app.contains("invoke(\"join_info\""));
     }
 
     #[test]
@@ -2563,6 +2741,10 @@ mod tests {
         for l in &c.links {
             assert!(l.url.is_empty() || l.url.starts_with("https://"), "link must be https: {}", l.url);
         }
+        // 0.5.5: the test file on our file server and the first-join size (firstjoin.rs)
+        assert_eq!(c.cdn_speed_url, "https://cdn.coldz.vip/speed/8mb.bin");
+        assert!(firstjoin::valid_url(&c.cdn_speed_url));
+        assert_eq!(c.first_join_gb, 6.0);
         let news: serde_json::Value = serde_json::from_str(BUNDLED_NEWS).unwrap();
         assert!(valid_news(&news));
         if let Some(a) = news.get("serverAddress").and_then(|a| a.as_str()) {
