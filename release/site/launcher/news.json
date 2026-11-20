@@ -148,9 +148,66 @@
   ],
   "items": [
     {
+      "id": "update-2026-11-20-alpha52",
+      "date": "2026-11-20",
+      "pinned": true,
+      "title": {
+        "ru": "ALPHA 5.2: мины заново, M2 и листы, двери баз, лента 100, FPS",
+        "en": "ALPHA 5.2: mines reset, M2 and plates, base doors, 100-round belts, FPS",
+        "es": "ALPHA 5.2: minas de nuevo, M2 y planchas, puertas de bases, cintas de 100, FPS",
+        "pt-BR": "ALPHA 5.2: minas de novo, M2 e chapas, portas das bases, fitas de 100, FPS"
+      },
+      "body": {
+        "ru": "ALPHA 5.2 на сервере. Перед входом полностью закройте FiveM и запустите заново.\n\nМины, растяжки, колючка\n• Все старые мины, растяжки и колючка сняты: ставьте заново, старые были видны не всем.\n• Мину видят все, её можно подорвать выстрелом. Растяжка и колючка ставятся как палатка (Enter), лимита на игрока нет.\n\nБой и оружие\n• Слайды закрыты тихо: с прицелом режется только спринт, бег и стрейф остались.\n• Убран толчок камеры при попадании и звон в ушах от своего выстрела. У AUG вернулся звук.\n• Лента M249 и ПКМ: 100 патронов у обоих, окно и ствол совпадают.\n• Килл через машину засчитывается стрелку, наезд — водителю. Кровотечение после аптечки не убивает посреди перевязки.\n• АКС-74 не пропадает из рук, руки не застревают. Первое лицо без шлема и без задержки.\n• Отмена полоски клавишей X больше не открывает чат и не обездвиживает.\n\nТехника\n• Листы стали: новый вид на Элли без компрессора, со щитами у колёс; машины листуются пачками по 5.\n• Патриот перерисован, пулемёт M2 снова ставится: стрелок садится слева, машина не пропадает.\n• Багажник Barracks вмещает все 500 кг. Пустая машина на ручнике. Разборка машин как раньше.\n\nБазы и карта\n• Мерцание стен на базах исправлено. Дверь с картой у всех открыта одинаково.\n• Красная карта показывает заряд: 100 % новая, 50 % после первого открытия.\n• «Порт»: одни ворота Д1, лифт из-под платформы. Ворота всех баз видно издалека, а открывать их можно только вблизи, примерно с 15 м, в том числе через F7.\n• Невидимая стенка у дерева убрана, дыры во льду над тоннелем «Аламо-восток» закрыты. Лестницы игры работают как наши.\n\nТрупы, лут, события\n• Труп игрока лежит 3 часа, зомби час. Два трупа рядом: лутается тот, на который смотришь, труп игрока важнее.\n• Палатку можно ставить вплотную к стене и сквозь неё, в том числе на базах. При сворачивании вещи пропадают. Спавн не кидает всех в одну точку.\n\nЧат, интерфейс, FPS\n• Наказания администрации видны всем в чате. Метки только соклановцам. Хелпер виден в Tab.\n• Правила: нельзя оскорблять родных и упоминать их.\n• FPS: обход зомби по кадрам, кровь на телах только вблизи.\n• Мы в Instagram и TikTok: ссылки в углу экрана, на экране загрузки и на сайте.\n\nО багах пишите в Discord или /report в игре.",
+        "en": "ALPHA 5.2 is live. Fully close FiveM and start it again before joining.\n\nMines, tripwires, wire\n• All old mines, tripwires and barbed wire were removed: place them again, the old ones were not visible to everyone.\n• Mines are visible to all players and can be detonated by a shot. Tripwires and wire are placed like a tent (Enter), no per-player limit.\n\nCombat and weapons\n• Slides are closed quietly: aiming only cuts sprint, running and strafing while aiming stay.\n• Camera kick on hit and the ringing from your own shot are gone. The AUG has its sound back.\n• M249 and PKM belts hold 100 rounds each, the window and the gun now match.\n• A kill through a car counts for the shooter, running someone over counts for the driver. Bleeding no longer kills mid-bandage after a medkit.\n• The AKS-74 no longer vanishes from your hands, hands do not get stuck. First person without a helmet has no delay.\n• Cancelling a progress bar with X no longer opens chat or freezes you.\n\nVehicles\n• Steel plates: new look on the Ellie without the compressor, shields at the wheels; cars get plated in batches of 5.\n• The Patriot was redrawn and the M2 can be mounted again: the gunner enters from the left, the car no longer disappears.\n• The Barracks trunk fits the full 500 kg. An empty car holds on the handbrake. Taking parts works as before.\n\nBases and map\n• Flickering walls at bases are fixed. Keycard doors look the same for everyone.\n• The red keycard shows its charge: 100 % new, 50 % after the first opening.\n• \"Port\": one main gate D1, the lift is called from under the platform. Gates of all bases are visible from afar, but can be opened only up close, about 15 m, including via F7.\n• The invisible wall by the tree is gone, holes in the ice over the \"Alamo East\" tunnel are closed. Game ladders work like ours.\n\nCorpses, loot, events\n• A player corpse stays 3 hours, a zombie corpse one hour. Two corpses nearby: you loot the one you look at, the player corpse comes first.\n• Tents can be placed flush against a wall and through it, bases included. Packing a tent drops its items. Spawning no longer drops everyone at one point.\n\nChat, interface, FPS\n• Admin punishments are shown to everyone in chat. Marks are clan-only. Helpers are visible in Tab.\n• Rules: insulting or mentioning relatives is forbidden.\n• FPS: zombie processing is spread over frames, blood on bodies is drawn only up close.\n• We are on Instagram and TikTok: links in the screen corner, on the loading screen and on the site.\n\nReport bugs in Discord or with /report in game.",
+        "es": "ALPHA 5.2 ya está en el servidor. Cierra FiveM por completo y ábrelo de nuevo antes de entrar.\n\nMinas, trampas, alambre\n• Todas las minas, trampas y alambres antiguos se quitaron: colócalos de nuevo, los antiguos no los veían todos.\n• Las minas las ven todos y se pueden detonar de un disparo. Las trampas y el alambre se colocan como una tienda (Enter), sin límite por jugador.\n\nCombate y armas\n• Los slides se cerraron en silencio: apuntar solo corta el sprint, correr y moverse de lado apuntando se mantiene.\n• Se quitó la sacudida de cámara al recibir daño y el pitido de tu propio disparo. La AUG volvió a tener sonido.\n• Las cintas de la M249 y la PKM tienen 100 cartuchos cada una; la ventana y el arma coinciden.\n• Una muerte a través del coche cuenta para el tirador, el atropello para el conductor. El desangrado ya no mata a medio vendaje tras un botiquín.\n• La AKS-74 ya no desaparece de las manos, las manos no se traban. Primera persona sin casco y sin retraso.\n• Cancelar la barra con X ya no abre el chat ni te inmoviliza.\n\nVehículos\n• Planchas de acero: nuevo aspecto en la Ellie sin compresor, con escudos en las ruedas; los coches se blindan en lotes de 5.\n• El Patriot se rehízo y la M2 vuelve a montarse: el tirador entra por la izquierda, el coche no desaparece.\n• El maletero del Barracks admite los 500 kg completos. El coche vacío se queda con freno de mano. Quitar piezas funciona como antes.\n\nBases y mapa\n• Se arregló el parpadeo de paredes en las bases. Las puertas con tarjeta se ven igual para todos.\n• La tarjeta roja muestra su carga: 100 % nueva, 50 % tras la primera apertura.\n• \"Puerto\": un portón principal D1, el ascensor se llama desde debajo de la plataforma. Los portones de todas las bases se ven desde lejos, pero solo se abren de cerca, a unos 15 m, también desde F7.\n• Se quitó la pared invisible junto al árbol y se cerraron los agujeros del hielo sobre el túnel \"Alamo Este\". Las escaleras del juego funcionan como las nuestras.\n\nCadáveres, botín, eventos\n• El cadáver de un jugador dura 3 horas, el de un zombi una hora. Dos cadáveres juntos: saqueas el que miras, el del jugador tiene prioridad.\n• La tienda se puede colocar pegada a una pared y a través de ella, también en las bases. Al recogerla se pierden las cosas. El spawn ya no deja a todos en un mismo punto.\n\nChat, interfaz, FPS\n• Los castigos de la administración se ven en el chat de todos. Las marcas solo para el clan. Los helpers se ven en Tab.\n• Reglas: prohibido insultar o mencionar a familiares.\n• FPS: el recorrido de zombis se reparte entre cuadros, la sangre en los cuerpos solo se dibuja de cerca.\n• Estamos en Instagram y TikTok: enlaces en la esquina de la pantalla, en la pantalla de carga y en la web.\n\nReporta errores en Discord o con /report en el juego.",
+        "pt-BR": "ALPHA 5.2 está no servidor. Feche o FiveM por completo e abra de novo antes de entrar.\n\nMinas, armadilhas, arame\n• Todas as minas, armadilhas e arames antigos foram removidos: coloque de novo, os antigos não eram vistos por todos.\n• As minas são vistas por todos e explodem com um tiro. Armadilhas e arame são colocados como uma barraca (Enter), sem limite por jogador.\n\nCombate e armas\n• Os slides foram fechados em silêncio: mirar só corta o sprint, correr e andar de lado mirando continuam.\n• Saiu o tranco de câmera ao levar dano e o zumbido do próprio tiro. A AUG voltou a ter som.\n• As fitas da M249 e da PKM têm 100 cartuchos cada; a janela e a arma agora coincidem.\n• Morte através do carro conta para o atirador, atropelamento para o motorista. O sangramento não mata mais no meio do curativo após um kit.\n• A AKS-74 não some mais das mãos, as mãos não travam. Primeira pessoa sem capacete e sem atraso.\n• Cancelar a barra com X não abre mais o chat nem trava o personagem.\n\nVeículos\n• Chapas de aço: novo visual na Ellie sem compressor, com escudos nas rodas; os carros são blindados em lotes de 5.\n• O Patriot foi refeito e a M2 volta a ser montada: o atirador entra pela esquerda, o carro não some.\n• O porta-malas do Barracks cabe os 500 kg completos. Carro vazio fica no freio de mão. Tirar peças funciona como antes.\n\nBases e mapa\n• O piscar das paredes nas bases foi corrigido. Portas com cartão ficam iguais para todos.\n• O cartão vermelho mostra a carga: 100 % novo, 50 % após a primeira abertura.\n• \"Porto\": um portão principal D1, o elevador é chamado de baixo da plataforma. Os portões de todas as bases são vistos de longe, mas só abrem de perto, a uns 15 m, inclusive pelo F7.\n• A parede invisível junto à árvore sumiu, os buracos no gelo sobre o túnel \"Alamo Leste\" foram fechados. Escadas do jogo funcionam como as nossas.\n\nCorpos, saque, eventos\n• O corpo de um jogador fica 3 horas, o de um zumbi uma hora. Dois corpos juntos: você saqueia o que está olhando, o do jogador tem prioridade.\n• A barraca pode ser colocada colada à parede e através dela, inclusive nas bases. Ao recolher, os itens somem. O spawn não joga mais todos no mesmo ponto.\n\nChat, interface, FPS\n• Punições da administração aparecem no chat de todos. Marcas só para o clã. Helpers aparecem no Tab.\n• Regras: proibido ofender ou mencionar familiares.\n• FPS: o processamento dos zumbis é dividido entre quadros, o sangue nos corpos só é desenhado de perto.\n• Estamos no Instagram e no TikTok: links no canto da tela, na tela de carregamento e no site.\n\nReporte bugs no Discord ou com /report no jogo."
+      }
+    },
+    {
+      "id": "socials-instagram-tiktok-2026-11-20",
+      "date": "2026-11-20",
+      "pinned": false,
+      "title": {
+        "ru": "COLDZ в Instagram и TikTok",
+        "en": "COLDZ on Instagram and TikTok",
+        "es": "COLDZ en Instagram y TikTok",
+        "pt-BR": "COLDZ no Instagram e no TikTok"
+      },
+      "body": {
+        "ru": "Подписывайтесь: ролики, кадры и новости сервера.\nInstagram: instagram.com/coldz_gta5_dayz\nTikTok: tiktok.com/@coldz_gta5",
+        "en": "Follow us for clips, screenshots and server news.\nInstagram: instagram.com/coldz_gta5_dayz_en\nTikTok: tiktok.com/@coldz_gta5_en",
+        "es": "Síguenos: vídeos, capturas y novedades del servidor.\nInstagram: instagram.com/coldz_gta5_dayz\nTikTok: tiktok.com/@coldz_gta5",
+        "pt-BR": "Siga a gente: vídeos, prints e novidades do servidor.\nInstagram: instagram.com/coldz_gta5_dayz_br\nTikTok: tiktok.com/@coldz_gta5_br"
+      },
+      "url": {
+        "ru": "https://www.instagram.com/coldz_gta5_dayz/",
+        "en": "https://www.instagram.com/coldz_gta5_dayz_en/",
+        "es": "https://www.instagram.com/coldz_gta5_dayz/",
+        "pt-BR": "https://www.instagram.com/coldz_gta5_dayz_br/"
+      }
+    },
+    {
+      "id": "launcher-0.5.3",
+      "date": "2026-11-20",
+      "pinned": false,
+      "title": {
+        "ru": "Лаунчер 0.5.3",
+        "en": "Launcher 0.5.3",
+        "es": "Launcher 0.5.3",
+        "pt-BR": "Launcher 0.5.3"
+      },
+      "body": {
+        "ru": "Убран график онлайна под счётчиком игроков. В окне появились кнопки Instagram и TikTok на вашем языке. Лаунчер обновится сам.",
+        "en": "The online graph under the player counter is gone. Instagram and TikTok buttons in your language are now in the window. The launcher updates itself.",
+        "es": "Se quitó el gráfico de jugadores en línea bajo el contador. En la ventana hay botones de Instagram y TikTok en tu idioma. El launcher se actualiza solo.",
+        "pt-BR": "O gráfico de online sob o contador de jogadores foi removido. A janela ganhou botões de Instagram e TikTok no seu idioma. O launcher se atualiza sozinho."
+      }
+    },
+    {
       "id": "update-2026-11-19-alpha51",
       "date": "2026-11-19",
-      "pinned": true,
+      "pinned": false,
       "title": {
         "ru": "ALPHA 5.1: РПК-74, листы стали, новый ИИ зомби, Канал и Порт",
         "en": "ALPHA 5.1: RPK-74, steel plates, new zombie AI, Canal and Port",
@@ -387,5 +444,5 @@
       }
     }
   ],
-  "signedAt": "2026-11-20T01:24:27Z"
+  "signedAt": "2026-11-20T04:17:54Z"
 }
