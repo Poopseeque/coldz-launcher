@@ -3,6 +3,16 @@
 Новые версии сверху. Первая строка записи: текст для `npm run release -- -Notes "…"` (он попадает в `latest.json`
 и в описание выпуска на GitHub), ниже подробности. Порядок выпуска: README, раздел 5, и `docs/ПРАВИЛА.md`.
 
+## 0.5.3
+
+- Убран график онлайна; кнопки Instagram и TikTok по языку; новости ALPHA 5.2.
+- EN: Online graph removed; Instagram and TikTok buttons follow the window language; ALPHA 5.2 news.
+- ES: Se quitó la gráfica de jugadores en línea; botones de Instagram y TikTok según el idioma; noticias de ALPHA 5.2.
+- PT-BR: Gráfico de jogadores online removido; botões de Instagram e TikTok conforme o idioma; notícias da ALPHA 5.2.
+- Подробнее: линия онлайна за сутки в ячейке «Игроки» убрана (Александр 20.11), число «N / 48», пинг и «Перезапуск через
+  N мин» остались (README 7ж). Ссылки `links` с полем `langs`: Instagram `coldz_gta5_dayz` (ru, es), `_en` (en), `_br`
+  (pt-BR); TikTok `@coldz_gta5` (ru, es), `_en` (en), `_br` (pt-BR). Новости ALPHA 5.2 приходят из `news.json`.
+
 ## 0.5.2
 
 - Лаунчер больше не закрывается молча при запуске: если на компьютере нет компонента Windows WebView2, появится окно со ссылкой на его установку, а при другой ошибке запуска окно с текстом ошибки, который можно прислать в группу.
