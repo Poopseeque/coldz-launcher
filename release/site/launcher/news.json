@@ -148,6 +148,29 @@
   ],
   "items": [
     {
+      "id": "socials-instagram-tiktok-2026-11-20",
+      "date": "2026-11-20",
+      "pinned": false,
+      "title": {
+        "ru": "COLDZ в Instagram и TikTok",
+        "en": "COLDZ on Instagram and TikTok",
+        "es": "COLDZ en Instagram y TikTok",
+        "pt-BR": "COLDZ no Instagram e no TikTok"
+      },
+      "body": {
+        "ru": "Подписывайтесь: ролики, кадры и новости сервера.\nInstagram: instagram.com/coldz_gta5_dayz\nTikTok: tiktok.com/@coldz_gta5",
+        "en": "Follow us for clips, screenshots and server news.\nInstagram: instagram.com/coldz_gta5_dayz_en\nTikTok: tiktok.com/@coldz_gta5_en",
+        "es": "Síguenos: vídeos, capturas y novedades del servidor.\nInstagram: instagram.com/coldz_gta5_dayz\nTikTok: tiktok.com/@coldz_gta5",
+        "pt-BR": "Siga a gente: vídeos, prints e novidades do servidor.\nInstagram: instagram.com/coldz_gta5_dayz_br\nTikTok: tiktok.com/@coldz_gta5_br"
+      },
+      "url": {
+        "ru": "https://www.instagram.com/coldz_gta5_dayz/",
+        "en": "https://www.instagram.com/coldz_gta5_dayz_en/",
+        "es": "https://www.instagram.com/coldz_gta5_dayz/",
+        "pt-BR": "https://www.instagram.com/coldz_gta5_dayz_br/"
+      }
+    },
+    {
       "id": "update-2026-11-19-alpha51",
       "date": "2026-11-19",
       "pinned": true,
@@ -387,5 +410,5 @@
       }
     }
   ],
-  "signedAt": "2026-11-20T01:24:27Z"
+  "signedAt": "2026-11-20T03:38:17Z"
 }
