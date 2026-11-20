@@ -3,6 +3,21 @@
 Новые версии сверху. Первая строка записи: текст для `npm run release -- -Notes "…"` (он попадает в `latest.json`
 и в описание выпуска на GitHub), ниже подробности. Порядок выпуска: README, раздел 5, и `docs/ПРАВИЛА.md`.
 
+## 0.5.5
+
+- Первый вход: под «Играть» лаунчер пишет, сколько скачает игра (около 6 ГБ файлов сервера) и примерно сколько минут это займёт при вашей скорости; в «Проверить связь» видна скорость до сервера файлов.
+- EN: First join: under Play the launcher shows how much the game will download (about 6 GB of server files) and roughly how many minutes it takes at your speed; Check connection shows the speed to the file server.
+- ES: Primera entrada: bajo Jugar el lanzador muestra cuánto descargará el juego (unos 6 GB de archivos del servidor) y cuántos minutos tardará aproximadamente con tu velocidad; Comprobar conexión muestra la velocidad hasta el servidor de archivos.
+- PT-BR: Primeira entrada: abaixo de Jogar o launcher mostra quanto o jogo vai baixar (cerca de 6 GB de arquivos do servidor) e quantos minutos isso leva na sua velocidade; Testar conexão mostra a velocidade até o servidor de arquivos.
+- Подробнее (`src-tauri/src/firstjoin.rs`, README 7о): замер `https://cdn.coldz.vip/speed/8mb.bin` (первые 8 МиБ или 6 с,
+  скорость после разгона 256 КиБ) в фоне после тихой проверки связи и по «Проверить связь», не чаще раза в 10 минут
+  (`settings.json → cdnSpeed`), «Играть» его останавливает, ошибки только в `net-check.log`. Первый вход: нет папки
+  `FiveM.app\data\server-cache-priv` (только есть или нет) или нет отметки `joinedOnce` (ставится, когда «Играть»
+  запустил FiveM; для обновившихся отметка — `launcherId`). Минуты: ГБ / скорость, вверх, шагом 5 после 10 минут и 10
+  после часа; меньше 2 МБ/с — «лучше закрыть торренты и другие загрузки». Повторный вход: без строки, с
+  `news.json → updateHint: true` «Обновления докачаются за минуту-другую». `launcher.config.json → cdnSpeedUrl`,
+  `firstJoinGb` (6), `news.json` главнее (`""` и `0` выключают). Файлы сервера по-прежнему качает только FiveM.
+
 ## 0.5.4
 
 - Перед «Играть» лаунчер ставит FiveM сборку игры сервера и сам докачивает файлы игры для сервера (с продолжением после обрыва): они больше не качаются внутри игры.
