@@ -55,6 +55,9 @@
       }
     ]
   },
+  "gameBuild": {
+    "preset": true
+  },
   "gameStorage": [
     {
       "build": 3258,

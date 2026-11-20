@@ -105,6 +105,29 @@ struct Config {
     /// wins.
     #[serde(default)]
     game_storage: Vec<storage::Entry>,
+    /// 0.5.4 (gamebuild.rs): `{"preset": false}` — the launcher does not touch CitizenFX.ini (starts FiveM as 0.5.3).
+    /// `gameBuild.preset` in news.json wins.
+    #[serde(default)]
+    game_build: GameBuildSwitch,
+}
+
+/// 0.5.4: the remote switch for writing CitizenFX.ini (gamebuild.rs).
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct GameBuildSwitch {
+    /// Set the server's game build in CitizenFX.ini before FiveM starts. Missing: on.
+    #[serde(default = "preset_default")]
+    preset: bool,
+}
+
+fn preset_default() -> bool {
+    true
+}
+
+impl Default for GameBuildSwitch {
+    fn default() -> Self {
+        GameBuildSwitch { preset: true }
+    }
 }
 
 fn config() -> &'static Config {
@@ -200,6 +223,22 @@ fn remote_storage() -> &'static RwLock<Option<Vec<storage::Entry>>> {
     S.get_or_init(|| RwLock::new(None))
 }
 
+/// 0.5.4: `gameBuild.preset` from news.json. `None` = no such key (or not true/false): launcher.config.json decides.
+fn remote_preset() -> &'static RwLock<Option<bool>> {
+    static S: OnceLock<RwLock<Option<bool>>> = OnceLock::new();
+    S.get_or_init(|| RwLock::new(None))
+}
+
+/// `gameBuild.preset` of a news file: Some only for a real true/false.
+fn preset_of_feed(v: &serde_json::Value) -> Option<bool> {
+    v.get("gameBuild").and_then(|g| g.get("preset")).and_then(|p| p.as_bool())
+}
+
+/// Does the launcher write the game build to CitizenFX.ini (gamebuild.rs)? news.json wins over launcher.config.json.
+fn preset_on(remote: Option<bool>, built_in: &GameBuildSwitch) -> bool {
+    remote.unwrap_or(built_in.preset)
+}
+
 /// FiveM's override files in use (storage.rs `clean`): from news.json, or the built-in ones.
 fn effective_storage() -> Vec<storage::Entry> {
     let remote = remote_storage().read().ok().and_then(|g| g.clone());
@@ -246,6 +285,10 @@ fn apply_feed(v: &serde_json::Value) {
         .and_then(|t| serde_json::from_value::<Vec<storage::Entry>>(t.clone()).ok());
     if let Ok(mut slot) = remote_storage().write() {
         *slot = table;
+    }
+    // 0.5.4: `gameBuild: {"preset": false}` — CitizenFX.ini is not touched; missing or not true/false = built-in
+    if let Ok(mut slot) = remote_preset().write() {
+        *slot = preset_of_feed(v);
     }
 }
 
@@ -760,8 +803,17 @@ fn play(app: AppHandle) -> Result<PlayResult, String> {
             if let Ok(mut g) = last_launch().lock() {
                 *g = Some(Instant::now());
             }
-            // 0.5.4: the game build the server asks for, before FiveM reads the file (gamebuild.rs)
-            if let Target::Direct { host, port } = parse_address(&address) {
+            // 0.5.4: the game build the server asks for, before FiveM reads the file (gamebuild.rs); switched off by
+            // `gameBuild.preset: false` (news.json, else launcher.config.json): as 0.5.3
+            let remote = remote_preset().read().ok().and_then(|g| *g);
+            if !preset_on(remote, &config().game_build) {
+                if let Some(log) = search_log_path(&app) {
+                    fivem::write_log(&log, "«Играть»: запись CitizenFX.ini выключена (gameBuild.preset = false)", &[]);
+                }
+                if let Ok(mut g) = build_ask().lock() {
+                    *g = None;
+                }
+            } else if let Target::Direct { host, port } = parse_address(&address) {
                 build = sync_game_build(&app, &exe, &format!("{host}:{port}"));
             }
             "launched"
@@ -2161,7 +2213,13 @@ mod tests {
         assert_eq!(route_address().as_deref(), Some("177.3.198.34:30120"));
         assert_eq!(valid_route().map(|r| r.kind), Some("reserve"));
         *current_route().write().unwrap() = None;
+        // 0.5.4: gameBuild.preset from news.json is kept, a feed without it brings launcher.config.json back
+        apply_feed(&serde_json::json!({ "items": [], "gameBuild": { "preset": false } }));
+        assert_eq!(*remote_preset().read().unwrap(), Some(false));
+        assert!(!preset_on(*remote_preset().read().unwrap(), &config().game_build));
         apply_feed(&serde_json::json!({ "items": [] }));
+        assert_eq!(*remote_preset().read().unwrap(), None);
+        assert!(preset_on(*remote_preset().read().unwrap(), &config().game_build));
     }
 
     #[test]
@@ -2469,6 +2527,32 @@ mod tests {
         // langs reaches the window (get_config serializes Link)
         let v = serde_json::to_value(&c.links).unwrap();
         assert!(v.as_array().unwrap().iter().any(|l| l["langs"] == serde_json::json!(["en"])));
+    }
+
+    // 0.5.4: the remote switch for CitizenFX.ini: news.json `gameBuild.preset` wins, a missing or empty key = the
+    // built-in launcher.config.json
+    #[test]
+    fn game_build_switch() {
+        use serde_json::json;
+        let on = GameBuildSwitch { preset: true };
+        let off = GameBuildSwitch { preset: false };
+        // built in: on by default, and the shipped launcher.config.json says on
+        assert!(config().game_build.preset);
+        let cfg: serde_json::Value = serde_json::from_str(CONFIG_JSON).unwrap();
+        assert_eq!(cfg["gameBuild"], json!({ "preset": true }));
+        assert_eq!(serde_json::from_value::<GameBuildSwitch>(json!({})).unwrap(), on);
+        // news.json says
+        assert_eq!(preset_of_feed(&json!({ "gameBuild": { "preset": false } })), Some(false));
+        assert_eq!(preset_of_feed(&json!({ "gameBuild": { "preset": true } })), Some(true));
+        assert!(!preset_on(Some(false), &on));
+        assert!(preset_on(Some(true), &off));
+        // no key, an empty object, a null, a string: launcher.config.json decides
+        for feed in [json!({}), json!({ "gameBuild": {} }), json!({ "gameBuild": null }), json!({ "gameBuild": { "preset": "no" } }), json!({ "gameBuild": [] })] {
+            assert_eq!(preset_of_feed(&feed), None, "{feed}");
+            assert!(preset_on(preset_of_feed(&feed), &on));
+            assert!(!preset_on(preset_of_feed(&feed), &off));
+        }
+        // apply_feed keeps it: news_address_overrides_built_in (the same globals, one test at a time)
     }
 
     #[test]

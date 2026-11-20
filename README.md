@@ -756,6 +756,11 @@ game data … download X GB» → Continue): там таймера нет (пр�
 - Прямой запуск FiveM.exe с `-b` по-прежнему нельзя (раздел 7). Ссылка `fivem://connect/<адрес>?-b3258` FiveM читает
   (`CrossBuildLaunch.cpp`), но без pure, пулов и exe: поэтому файл.
 
+**Выключатель без нового выпуска:** `news.json → "gameBuild": { "preset": false }` — лаунчер `CitizenFX.ini` не трогает
+и запускает FiveM как 0.5.3 (в журнале «запись CitizenFX.ini выключена»). Ключа нет, `{}` или не true/false — решает
+`launcher.config.json → gameBuild.preset` (сейчас `true`). Докачку файла игры (раздел 7н) это не выключает: у неё свой
+выключатель, пустой `gameStorage: []` в `news.json`. Тест `game_build_switch`.
+
 Предпросмотр: `?build=1&card=play` (строка про «Continue»). Тесты: `gamebuild.rs` (разбор `vars`, exe как у FiveM,
 плохие `vars`, файл владельца совпадает, другая сборка, байты `IVPath` в cp1251, CRLF/LF, без конца строки, другие
 секции, пустой файл, pure и пулы как у FiveM, UTF-16, файл на диске: нет `FiveM.app`, создание, «не писать», только
