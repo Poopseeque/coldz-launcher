@@ -198,6 +198,21 @@
     $("fivem-stuck").hidden = !(showing && fivemMessage.stuck);
     $("fivem-net").hidden = true;
     $("fivem-hint").hidden = true;
+    $("fivem-storage").hidden = true;
+    $("storage-bar").hidden = true;
+    // 0.5.4: the game file for the server is being downloaded (or stopped): that line and its buttons
+    if (storageUi) {
+      const s = storageUi;
+      box.dataset.state = s.running || s.error === "cancelled" ? "message" : "net";
+      text.textContent = storageText();
+      actions.hidden = true;
+      $("fivem-storage").hidden = false;
+      $("btn-storage-cancel").hidden = !s.running;
+      $("btn-storage-skip").hidden = !!s.running;
+      $("storage-bar").hidden = !s.running;
+      $("storage-bar-fill").style.width = (s.total ? Math.min(100, (s.done / s.total) * 100) : 0).toFixed(1) + "%";
+      return;
+    }
     if (showing) {
       box.dataset.state = "message";
       text.textContent = t(fivemMessage.key, { a: address || "—" });
@@ -232,6 +247,42 @@
     box.dataset.state = fivemInstalled ? "ok" : "missing";
     text.textContent = t(fivemInstalled ? "fivem_found" : "fivem_missing");
     actions.hidden = fivemInstalled;
+  }
+
+  // ------------------------------------------------------------ game file for the server (0.5.4, storage.rs)
+  // FiveM's override update.rpf (1.4 GB for a server on 3258 with a fresh GTA): downloaded before FiveM starts, so FiveM
+  // does not download it inside the game. null | { done, total, phase: "download"|"check", running, error }
+  let storageUi = null;
+  const STORAGE_ERRORS = { cancelled: "storage_paused", network: "storage_network", remote: "storage_remote", bad: "storage_bad", space: "storage_space", disk: "storage_disk" };
+  function storageText() {
+    const s = storageUi;
+    const v = { d: Math.round(s.done / 1e6), t: Math.round(s.total / 1e6), g: Math.max(1, Math.ceil((s.total - s.done) / 1e9 + 0.5)) };
+    if (s.running) return t(s.phase === "check" ? "storage_checking" : "storage_progress", v);
+    return t(STORAGE_ERRORS[s.error] || "storage_network", v);
+  }
+  // true: the file is there now (or nothing to do any more): go on to FiveM
+  async function downloadStorage(need) {
+    storageUi = { done: need.have || 0, total: need.total, phase: "download", running: true, error: null };
+    renderFivem();
+    try {
+      await invoke("storage_download");
+      storageUi = null;
+      renderFivem();
+      return true;
+    } catch (err) {
+      if (err === "none") {
+        storageUi = null;
+        return true;
+      }
+      storageUi = Object.assign({}, storageUi, { running: false, error: String(err) });
+      renderFivem();
+      return false;
+    }
+  }
+  function onStorageProgress(p) {
+    if (!storageUi || !storageUi.running || !p) return;
+    Object.assign(storageUi, p);
+    renderFivem();
   }
 
   // ------------------------------------------------------------ crash hint + support report (0.5.0)
@@ -622,6 +673,7 @@
       return;
     }
     busy = true;
+    storageUi = null;
     const btn = $("play");
     const label = btn.querySelector(".play__text");
     const release = (ms) => setTimeout(() => {
@@ -650,8 +702,8 @@
     // 0.5.4: at the same time the game build the server needs (/info.json vars, src-tauri/src/gamebuild.rs); «play»
     // then sets it in FiveM's CitizenFX.ini before FiveM starts (only while FiveM is not running).
     $("nick").value = checked.nick;
-    const buildAsk = invoke("game_build").catch(() => false);
-    const [nickOk, netRes] = await Promise.all([fromNet ? true : sendNick(checked.nick), netCheck, buildAsk]);
+    const buildAsk = invoke("game_build").catch(() => null);
+    const [nickOk, netRes, build] = await Promise.all([fromNet ? true : sendNick(checked.nick), netCheck, buildAsk]);
     renderNick();
     if (!nickOk) {
       release(0);
@@ -664,6 +716,15 @@
       release(0);
       openNet(true);
       return;
+    }
+    // 0.5.4: a game file FiveM would otherwise download inside the game: first here, with progress and «Отменить»
+    // (src-tauri/src/storage.rs). Stopped or failed: «Играть» continues it, «Играть без докачки» leaves it to FiveM.
+    if (build && build.storage && !(opts && opts.skipStorage)) {
+      label.textContent = t("storage_button");
+      if (!(await downloadStorage(build.storage))) {
+        release(0);
+        return;
+      }
     }
     label.textContent = t("launching");
     // 2) FiveM: started, or the link went into an open FiveM, or it is still starting from the last «Play»
@@ -903,6 +964,8 @@
     $("btn-recheck").onclick = refreshFivem;
     $("btn-pick-fivem").onclick = pickFivem;
     $("btn-close-fivem").onclick = closeFivem;
+    $("btn-storage-cancel").onclick = () => { invoke("storage_cancel").catch(() => {}); };
+    $("btn-storage-skip").onclick = () => { storageUi = null; play({ skipStorage: true }); };
     $("btn-update").onclick = installUpdate;
     $("btn-net").onclick = () => { openNet(false); runNetCheck(); };
     $("btn-net-recheck").onclick = () => { runNetCheck(); };
@@ -954,6 +1017,7 @@
     loadNews().then(() => { refreshStatus(); runNetCheck(); refreshInfo(); });
     setTimeout(checkUpdate, 1500);
     T.event.listen("update-ready", () => { updateReady = true; renderUpdate(); }).catch(() => {});
+    T.event.listen("storage-progress", (e) => onStorageProgress(e.payload)).catch(() => {});
 
     setInterval(refreshStatus, STATUS_EVERY_MS);
     setInterval(refreshInfo, INFO_EVERY_MS);
@@ -1025,6 +1089,8 @@
       check_update: q.get("update") ? { version: "0.5.0", notes: null } : null
     };
     let previewNick = "";
+    let previewStorageCancel = false;
+    const listeners = {};
     // the route a check chose: a reserve address with ?route=reserve
     const previewRoute = () => {
       if (q.get("address") === "0") return;
@@ -1054,7 +1120,26 @@
         const action = run === "open" ? "passed" : run === "starting" ? "starting" : "launched";
         return { action, build: action === "launched" && q.get("build") === "1" };
       }
-      if (cmd === "game_build") return true;
+      // 0.5.4: ?storage=1 — a game file to download first (progress, «Отменить»); ?storage=fail — the download breaks;
+      // ?storage=space — not enough space
+      if (cmd === "game_build") {
+        const st = q.get("storage");
+        return { ok: true, storage: st ? { total: 1423288320, have: 300000000 } : null };
+      }
+      if (cmd === "storage_cancel") { previewStorageCancel = true; return null; }
+      if (cmd === "storage_download") {
+        previewStorageCancel = false;
+        const st = q.get("storage");
+        if (st === "space") throw "space";
+        for (let i = 1; i <= 12; i++) {
+          await new Promise((r) => setTimeout(r, 400));
+          if (previewStorageCancel) throw "cancelled";
+          if (st === "fail" && i === 4) throw "network";
+          const fn = listeners["storage-progress"];
+          if (fn) fn({ payload: i <= 10 ? { done: 300000000 + i * 112328832, total: 1423288320, phase: "download" } : { done: (i - 10) * 711644160, total: 1423288320, phase: "check" } });
+        }
+        return null;
+      }
       if (cmd === "close_fivem") return q.get("close") === "fail" ? [2, 1] : [3, 0];
       if (cmd === "choose_route") {
         await new Promise((r) => setTimeout(r, 300));
@@ -1152,6 +1237,7 @@
     };
     const win = { minimize: async () => {}, toggleMaximize: async () => {}, close: async () => {} };
     const listen = async (name, fn) => {
+      listeners[name] = fn;
       if (name === "update-ready" && q.get("update")) setTimeout(() => fn({ payload: "0.5.0" }), 2500);
       return () => {};
     };

@@ -351,6 +351,11 @@ button, select { font: inherit; color: inherit; }
 .status__restart { color: #ffe3a3; }
 
 /* 0.5.0: the crash hint (support.rs): an amber line instead of «FiveM установлен» */
+/* 0.5.4: the game file download under «Играть» (storage.rs) */
+.storage-bar { height: 4px; margin-top: 8px; background: rgba(255, 255, 255, 0.08); border-radius: 2px; overflow: hidden; }
+.storage-bar i { display: block; height: 100%; width: 0; background: var(--blood-hi); transition: width 0.2s linear; }
+.storage-bar[hidden] { display: none; }
+#fivem-storage { margin-top: 8px; }
 .fivem[data-state="hint"] .fivem__text { color: #ffe3a3; }
 .fivem[data-state="hint"] .fivem__text::before { content: "! "; color: var(--amber); font-weight: 700; }
 

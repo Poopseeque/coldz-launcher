@@ -55,6 +55,14 @@
       }
     ]
   },
+  "gameStorage": [
+    {
+      "build": 3258,
+      "sha1": "abf3a580ddfc4cb372b5a4ce48ed7b2ea31e5270",
+      "url": "https://cfx-downloads.akamaized.net/prod/019febd6-45b3-748d-a84c-baa43c75160a/update.rpf",
+      "size": 1423288320
+    }
+  ],
   "maxPlayers": 48,
   "ownerEmail": "aaenlly@gmail.com",
   "fivemDownloadUrl": "https://fivem.net/",

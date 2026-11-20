@@ -16,6 +16,8 @@
 //!   * 0.5.4: before starting FiveM sets the game build the server asks for (`/info.json` vars) in FiveM's settings
 //!     file `FiveM.app\CitizenFX.ini` (gamebuild.rs: only the keys FiveM itself writes when it joins), so FiveM
 //!     downloads the build data in its start window, not inside the game,
+//!   * 0.5.4: when the server's build needs FiveM's override `update.rpf` (storage.rs), downloads it into FiveM's cache
+//!     before FiveM starts, from FiveM's own address, continuing after a break, checked by SHA-1,
 //!   * updates itself through the Tauri updater (signed with our own key).
 
 mod fivem;
@@ -27,6 +29,7 @@ mod route;
 mod running;
 mod signin;
 mod startup;
+mod storage;
 mod support;
 mod tunnel;
 mod window;
@@ -98,6 +101,10 @@ struct Config {
     news_pubkey: String,
     #[serde(default)]
     links: Vec<Link>,
+    /// 0.5.4 (storage.rs): FiveM's table of override files (build → sha1, address, size). `gameStorage` in news.json
+    /// wins.
+    #[serde(default)]
+    game_storage: Vec<storage::Entry>,
 }
 
 fn config() -> &'static Config {
@@ -187,6 +194,18 @@ fn remote_signin() -> &'static RwLock<Option<signin::Setup>> {
     S.get_or_init(|| RwLock::new(None))
 }
 
+/// 0.5.4: `gameStorage` from news.json. `None` = the key is missing: the built-in table.
+fn remote_storage() -> &'static RwLock<Option<Vec<storage::Entry>>> {
+    static S: OnceLock<RwLock<Option<Vec<storage::Entry>>>> = OnceLock::new();
+    S.get_or_init(|| RwLock::new(None))
+}
+
+/// FiveM's override files in use (storage.rs `clean`): from news.json, or the built-in ones.
+fn effective_storage() -> Vec<storage::Entry> {
+    let remote = remote_storage().read().ok().and_then(|g| g.clone());
+    storage::clean(remote.as_ref().unwrap_or(&config().game_storage))
+}
+
 /// The sign-in hosts and tunnels in use (signin.rs `clean`): from news.json, or the built-in ones.
 fn effective_signin() -> signin::Setup {
     let remote = remote_signin().read().ok().and_then(|g| g.clone());
@@ -219,6 +238,14 @@ fn apply_feed(v: &serde_json::Value) {
         .and_then(|s| serde_json::from_value::<signin::Setup>(s.clone()).ok());
     if let Ok(mut slot) = remote_signin().write() {
         *slot = signin;
+    }
+    // 0.5.4: `gameStorage` (a list): missing or not a list = the built-in table
+    let table = v
+        .get("gameStorage")
+        .filter(|t| t.is_array())
+        .and_then(|t| serde_json::from_value::<Vec<storage::Entry>>(t.clone()).ok());
+    if let Ok(mut slot) = remote_storage().write() {
+        *slot = table;
     }
 }
 
@@ -491,6 +518,25 @@ struct BuildAsk {
     address: String,
     at: Instant,
     wanted: Result<gamebuild::Wanted, String>,
+    /// 0.5.4 (storage.rs): the override file FiveM will need and does not have yet, and the FiveM.app it goes to.
+    storage: Option<(storage::Entry, PathBuf)>,
+}
+
+/// What «Играть» learns from `game_build`.
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct GameBuild {
+    /// The server said what build it needs.
+    ok: bool,
+    /// 0.5.4: a game file to download before FiveM starts: all bytes and bytes already there (a part from last time).
+    storage: Option<StorageNeed>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StorageNeed {
+    total: u64,
+    have: u64,
 }
 
 fn build_ask() -> &'static std::sync::Mutex<Option<BuildAsk>> {
@@ -502,19 +548,147 @@ fn build_ask() -> &'static std::sync::Mutex<Option<BuildAsk>> {
 const BUILD_ASK_FOR: Duration = Duration::from_secs(120);
 
 /// «Играть», with the nick (0.5.4): `vars` of `/info.json` of the chosen route (gamebuild.rs). Only reads; `play`
-/// writes CitizenFX.ini right before FiveM starts, when FiveM is not running. True: the server said what it needs.
+/// writes CitizenFX.ini right before FiveM starts, when FiveM is not running. Also says whether FiveM will need a game
+/// file it does not have yet (storage.rs): the window then downloads it first (`storage_download`).
 #[tauri::command]
-async fn game_build() -> bool {
+async fn game_build(app: AppHandle) -> GameBuild {
     let Some(Target::Direct { host, port }) = route_address().map(|a| parse_address(&a)) else {
-        return false;
+        return GameBuild::default();
     };
     let address = format!("{host}:{port}");
     let wanted = ask_game_build(&address, route::PROBE_TIMEOUT).await;
     let ok = wanted.is_ok();
+    let storage = match &wanted {
+        Ok(w) => {
+            let w = w.clone();
+            tauri::async_runtime::spawn_blocking(move || storage_needed(&app, &w)).await.ok().flatten()
+        }
+        Err(_) => None,
+    };
+    let need = storage.as_ref().and_then(|(e, dir)| {
+        storage::missing(&storage::paths(dir, e), e).map(|have| StorageNeed { total: e.size, have })
+    });
     if let Ok(mut slot) = build_ask().lock() {
-        *slot = Some(BuildAsk { address, at: Instant::now(), wanted });
+        *slot = Some(BuildAsk { address, at: Instant::now(), wanted, storage });
     }
-    ok
+    GameBuild { ok, storage: need }
+}
+
+/// 0.5.4 (storage.rs): the override file FiveM will need for this server and does not have, when FiveM is installed,
+/// not running, and its FiveM.exe knows the same file. Anything unusual goes to fivem-search.log.
+fn storage_needed(app: &AppHandle, w: &gamebuild::Wanted) -> Option<(storage::Entry, PathBuf)> {
+    let exe = fivem_exe_quiet(app)?;
+    if running::state_of(&running::processes()).count > 0 {
+        return None;
+    }
+    let app_dir = support::app_dir(&exe);
+    if !app_dir.is_dir() {
+        return None;
+    }
+    let ini = std::fs::read(gamebuild::ini_path(&exe)).unwrap_or_default();
+    let e = storage::needed(w, &ini, &effective_storage())?;
+    storage::missing(&storage::paths(&app_dir, &e), &e)?;
+    let knows = std::fs::read(&exe).map(|b| storage::fivem_knows(&b, &e)).unwrap_or(false);
+    if !knows {
+        if let Some(log) = search_log_path(app) {
+            let line = format!("{} ({} байт): в {} нет этого sha1 и адреса, не качаем", e.cache_name(), e.size, exe.display());
+            fivem::write_log(&log, "«Играть»: файл игры для сервера (game-storage)", &[line]);
+        }
+        return None;
+    }
+    Some((e, app_dir))
+}
+
+/// The download running now (one at a time): its «Отменить».
+fn storage_cancel_slot() -> &'static std::sync::Mutex<Option<std::sync::Arc<storage::Cancel>>> {
+    static S: OnceLock<std::sync::Mutex<Option<std::sync::Arc<storage::Cancel>>>> = OnceLock::new();
+    S.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+/// For big files: no overall time limit (a stalled answer is caught by storage.rs), the same User-Agent.
+fn download_client() -> reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(10))
+                .user_agent(concat!("COLDZ-Launcher/", env!("CARGO_PKG_VERSION")))
+                .build()
+                .expect("download client")
+        })
+        .clone()
+}
+
+/// «Играть», 0.5.4: downloads (or continues) the game file `game_build` found missing into FiveM's cache
+/// (storage.rs). Progress: event `storage-progress` ({done, total, phase}). Err: "cancelled" | "network" | "remote" |
+/// "bad" | "space" | "disk" | "busy" | "none" (nothing to download any more).
+#[tauri::command]
+async fn storage_download(app: AppHandle) -> Result<(), String> {
+    let job = build_ask()
+        .lock()
+        .ok()
+        .and_then(|g| g.as_ref().filter(|a| a.at.elapsed() < BUILD_ASK_FOR).and_then(|a| a.storage.clone()));
+    let Some((entry, app_dir)) = job else {
+        return Err("none".into());
+    };
+    let cancel = std::sync::Arc::new(storage::Cancel::default());
+    {
+        let mut slot = storage_cancel_slot().lock().map_err(|_| "busy".to_string())?;
+        if slot.is_some() {
+            return Err("busy".into());
+        }
+        *slot = Some(cancel.clone());
+    }
+    let paths = storage::paths(&app_dir, &entry);
+    let before = storage::missing(&paths, &entry).unwrap_or(entry.size);
+    let free = support::drive_of(&app_dir).map(|d| d.free);
+    let started = Instant::now();
+    let handle = app.clone();
+    let result = storage::run(download_client(), app_dir, entry.clone(), free, cancel, move |p| {
+        let _ = handle.emit("storage-progress", p);
+    })
+    .await;
+    if let Ok(mut slot) = storage_cancel_slot().lock() {
+        *slot = None;
+    }
+    // the download may take minutes: «Играть» right after it still uses this answer of the server
+    if result.is_ok() {
+        if let Ok(mut g) = build_ask().lock() {
+            if let Some(a) = g.as_mut() {
+                a.at = Instant::now();
+                a.storage = None;
+            }
+        }
+    }
+    if let Some(log) = search_log_path(&app) {
+        let now = storage::missing(&paths, &entry).unwrap_or(entry.size);
+        let secs = started.elapsed().as_secs_f64().max(0.001);
+        let got = now.saturating_sub(before);
+        let mut lines = vec![
+            format!("{} ← {}", paths.done.display(), entry.url),
+            format!(
+                "было {} из {} байт, стало {now}; {:.0} с, {:.1} МБ/с",
+                before,
+                entry.size,
+                secs,
+                got as f64 / secs / 1_000_000.0
+            ),
+        ];
+        lines.push(match &result {
+            Ok(()) => "готово: SHA-1 совпал, файл на месте".to_string(),
+            Err(f) => format!("остановлено: {}", f.describe()),
+        });
+        fivem::write_log(&log, "«Играть»: файл игры для сервера (game-storage)", &lines);
+    }
+    result.map_err(|f| f.key().to_string())
+}
+
+/// «Отменить» under the download: the part stays, «Играть» continues it.
+#[tauri::command]
+fn storage_cancel() {
+    if let Some(c) = storage_cancel_slot().lock().ok().and_then(|g| g.clone()) {
+        c.cancel();
+    }
 }
 
 /// `vars` of `http://<address>/info.json` → what FiveM needs (gamebuild.rs). Err: why nothing is set (for the log).
@@ -1853,6 +2027,8 @@ pub fn run() {
             pick_fivem,
             choose_route,
             game_build,
+            storage_download,
+            storage_cancel,
             play,
             close_fivem,
             get_nick,
@@ -2076,9 +2252,24 @@ mod tests {
         }
         let app = include_str!("../../ui/app.js");
         let ask = app.find("invoke(\"game_build\")").expect("game_build asked");
+        let download = app.find("await invoke(\"storage_download\")").expect("storage_download");
         let play = app.find("await invoke(\"play\")").expect("play");
-        assert!(ask < play);
+        assert!(ask < play && download < play);
         assert!(app.contains("\"launched_build\""));
+        // 0.5.4 (storage.rs): the download texts on 4 languages, every error key has its line
+        for key in ["progress", "checking", "button", "cancel", "skip", "paused", "network", "remote", "bad", "space", "disk"] {
+            let lines: Vec<&str> = i18n.lines().filter(|l| l.trim_start().starts_with(&format!("storage_{key}:"))).collect();
+            assert_eq!(lines.len(), 4, "storage_{key}");
+            for l in &lines {
+                let low = l.to_lowercase();
+                for bad in ["—", "vpn", "ускорит", "accelerat", "acelerad", "обход"] {
+                    assert!(!low.contains(bad), "{bad} in {l}");
+                }
+            }
+        }
+        for key in ["cancelled", "network", "remote", "bad", "space", "disk"] {
+            assert!(app.contains(&format!("{key}: \"storage_")), "{key}");
+        }
     }
 
     #[test]
