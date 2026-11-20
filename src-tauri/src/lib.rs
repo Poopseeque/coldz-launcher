@@ -56,6 +56,9 @@ struct Link {
     /// Empty = button hidden.
     #[serde(default)]
     url: String,
+    /// Window languages the button shows in (ru, en, es, pt-BR); empty = all. 20.11: Instagram per language.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    langs: Vec<String>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -737,41 +740,24 @@ async fn route_pings() -> Vec<netcheck::RoutePing> {
         .collect()
 }
 
-// ---------------------------------------------------------------- restart notice and online graph (0.5.0)
+// ---------------------------------------------------------------- restart notice (0.5.0; online graph removed in 0.5.3)
 
 #[derive(Serialize, Default, Debug, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 struct ServerInfo {
     /// Seconds until the announced restart (server clock, so a wrong PC clock does not matter). None: none announced.
     restart_in: Option<i64>,
-    /// Online over the last day: (unix seconds of the 5-minute slot, players), oldest first.
-    points: Vec<(u64, u32)>,
-    step: u64,
-    max: u32,
 }
 
-/// `/z_menu/online` (winter-server z_menu server/online.lua): { now, step, max, restartAt, points }.
+/// `/z_menu/online` (winter-server z_menu server/online.lua): { now, restartAt, ... }; 0.5.3 reads only the restart.
 fn parse_online(v: &serde_json::Value) -> Option<ServerInfo> {
     if v.get("ok").and_then(|o| o.as_bool()) != Some(true) {
         return None;
     }
     let now = v.get("now").and_then(|n| n.as_i64())?;
     let restart = v.get("restartAt").and_then(|r| r.as_i64()).unwrap_or(0);
-    let points = v
-        .get("points")
-        .and_then(|p| p.as_array())
-        .map(|list| {
-            list.iter()
-                .filter_map(|p| Some((p.get(0)?.as_u64()?, p.get(1)?.as_u64()?.min(1000) as u32)))
-                .take(400)
-                .collect()
-        })
-        .unwrap_or_default();
     Some(ServerInfo {
         restart_in: (restart > now).then_some(restart - now),
-        points,
-        step: v.get("step").and_then(|s| s.as_u64()).unwrap_or(300),
-        max: v.get("max").and_then(as_u32).unwrap_or(config().max_players),
     })
 }
 
@@ -781,7 +767,7 @@ fn parse_info_restart(v: &serde_json::Value, local_now: i64) -> Option<i64> {
     (at > local_now).then_some(at - local_now)
 }
 
-/// The restart notice and the online graph, through the chosen route (the window asks once a minute).
+/// The restart notice, through the chosen route (the window asks once a minute).
 #[tauri::command]
 async fn server_info() -> ServerInfo {
     let Some(Target::Direct { host, port }) = route_address().map(|a| parse_address(&a)) else {
@@ -794,7 +780,7 @@ async fn server_info() -> ServerInfo {
     let restart_in = get_json(&format!("{base}/info.json"))
         .await
         .and_then(|v| parse_info_restart(&v, netcheck::unix_now() as i64));
-    ServerInfo { restart_in, step: 300, max: config().max_players, ..Default::default() }
+    ServerInfo { restart_in }
 }
 
 // ---------------------------------------------------------------- sign-in route (0.4.0, signin.rs)
@@ -2065,15 +2051,13 @@ mod tests {
         });
     }
 
-    /// 0.5.0: the server's answers about the restart and the online graph.
+    /// 0.5.0: the server's answers about the restart (0.5.3: the online graph is gone).
     #[test]
     fn restart_and_online_from_the_server() {
         let v = serde_json::json!({ "ok": true, "now": 1_000_000, "step": 300, "max": 48, "restartAt": 1_000_420,
             "points": [[999_600, 5], [999_900, 7], ["x", 1], [999_950]] });
         let i = parse_online(&v).unwrap();
         assert_eq!(i.restart_in, Some(420));
-        assert_eq!(i.points, vec![(999_600, 5), (999_900, 7)]);
-        assert_eq!((i.step, i.max), (300, 48));
         // no restart, or one in the past (the server clock decides, not the PC)
         assert_eq!(parse_online(&serde_json::json!({ "ok": true, "now": 10, "restartAt": 0, "points": [] })).unwrap().restart_in, None);
         assert_eq!(parse_online(&serde_json::json!({ "ok": true, "now": 10, "restartAt": 5 })).unwrap().restart_in, None);
@@ -2109,6 +2093,49 @@ mod tests {
         assert!(v.get("rules").and_then(|r| r.as_array()).map_or(false, |r| !r.is_empty()));
         let own = with_rules(serde_json::json!({ "items": [], "rules": [{ "title": { "ru": "x" }, "text": { "ru": "y" } }] }));
         assert_eq!(own["rules"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn instagram_and_tiktok_links_per_window_language() {
+        // 20.11: Instagram per window language: ru and es — the main account, en — _en, pt-BR — _br; one button each
+        let c = config();
+        for (lang, url) in [
+            ("ru", "https://www.instagram.com/coldz_gta5_dayz/"),
+            ("es", "https://www.instagram.com/coldz_gta5_dayz/"),
+            ("en", "https://www.instagram.com/coldz_gta5_dayz_en/"),
+            ("pt-BR", "https://www.instagram.com/coldz_gta5_dayz_br/"),
+        ] {
+            let shown: Vec<&Link> = c
+                .links
+                .iter()
+                .filter(|l| l.icon == "instagram" && (l.langs.is_empty() || l.langs.iter().any(|x| x == lang)))
+                .collect();
+            assert_eq!(shown.len(), 1, "{lang}");
+            assert_eq!(shown[0].url, url, "{lang}");
+        }
+        // 20.11: TikTok the same way: ru and es — @coldz_gta5, en — _en, pt-BR — _br
+        for (lang, url) in [
+            ("ru", "https://www.tiktok.com/@coldz_gta5"),
+            ("es", "https://www.tiktok.com/@coldz_gta5"),
+            ("en", "https://www.tiktok.com/@coldz_gta5_en"),
+            ("pt-BR", "https://www.tiktok.com/@coldz_gta5_br"),
+        ] {
+            let shown: Vec<&Link> = c
+                .links
+                .iter()
+                .filter(|l| l.icon == "tiktok" && (l.langs.is_empty() || l.langs.iter().any(|x| x == lang)))
+                .collect();
+            assert_eq!(shown.len(), 1, "tiktok {lang}");
+            assert_eq!(shown[0].url, url, "tiktok {lang}");
+        }
+        for l in &c.links {
+            for x in &l.langs {
+                assert!(["ru", "en", "es", "pt-BR"].contains(&x.as_str()), "unknown lang {x}");
+            }
+        }
+        // langs reaches the window (get_config serializes Link)
+        let v = serde_json::to_value(&c.links).unwrap();
+        assert!(v.as_array().unwrap().iter().any(|l| l["langs"] == serde_json::json!(["en"])));
     }
 
     #[test]

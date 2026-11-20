@@ -95,7 +95,38 @@
     {
       "icon": "tiktok",
       "label": "TikTok",
+      "langs": ["ru", "es"],
       "url": "https://www.tiktok.com/@coldz_gta5"
+    },
+    {
+      "icon": "tiktok",
+      "label": "TikTok",
+      "langs": ["en"],
+      "url": "https://www.tiktok.com/@coldz_gta5_en"
+    },
+    {
+      "icon": "tiktok",
+      "label": "TikTok",
+      "langs": ["pt-BR"],
+      "url": "https://www.tiktok.com/@coldz_gta5_br"
+    },
+    {
+      "icon": "instagram",
+      "label": "Instagram",
+      "langs": ["ru", "es"],
+      "url": "https://www.instagram.com/coldz_gta5_dayz/"
+    },
+    {
+      "icon": "instagram",
+      "label": "Instagram",
+      "langs": ["en"],
+      "url": "https://www.instagram.com/coldz_gta5_dayz_en/"
+    },
+    {
+      "icon": "instagram",
+      "label": "Instagram",
+      "langs": ["pt-BR"],
+      "url": "https://www.instagram.com/coldz_gta5_dayz_br/"
     },
     {
       "icon": "telegram",

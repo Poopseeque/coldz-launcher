@@ -21,7 +21,7 @@
   let address = "";          // address in use ("" = not published yet)
   let route = null;          // 0.3.5: "main" | "reserve" | "none" | null (src-tauri/src/route.rs)
   let tab = "news";
-  let serverInfo = null;     // 0.5.0: { restartIn, points, step, max, at } (server_info, once a minute)
+  let serverInfo = null;     // 0.5.0: { restartIn, at } (server_info, once a minute); 0.5.3: online graph removed
   const INFO_EVERY_MS = 60000;
   const RESTART_WARN_S = 120;  // «Играть» asks this long before the restart
   let crashHint = null;      // 0.5.0: { key, detail, gb, at } after a fresh FiveM crash (src-tauri/src/support.rs)
@@ -62,8 +62,8 @@
     renderReport();
     renderSettings();
     renderRestart();
-    renderSpark();
     renderUpdate();
+    if (cfg) renderLinks();   // 20.11: Instagram button follows the window language
   }
 
   // ------------------------------------------------------------ status + address
@@ -257,7 +257,7 @@
     return n + " " + t("unit_b");
   }
 
-  // ------------------------------------------------------------ restart notice + online graph (0.5.0)
+  // ------------------------------------------------------------ restart notice (0.5.0; online graph removed in 0.5.3)
   // Seconds left until the announced restart, counted from when the server answered. null: none announced.
   function restartLeft() {
     if (!serverInfo || serverInfo.restartIn == null) return null;
@@ -274,32 +274,12 @@
       $("restart-card-text").textContent = left != null && left < 60 ? t("restart_text_now") : t("restart_text", { n: Math.max(1, Math.ceil((left || 0) / 60)) });
     }
   }
-  function renderSpark() {
-    const pts = (serverInfo && Array.isArray(serverInfo.points)) ? serverInfo.points : [];
-    const svg = $("spark");
-    // an <svg> has no .hidden property: the attribute itself
-    if (pts.length < 2) { svg.setAttribute("hidden", ""); return; }
-    const step = serverInfo.step || 300;
-    const end = pts[pts.length - 1][0];
-    const start = end - 24 * 3600 + step;
-    const top = Math.max(serverInfo.max || 48, 1);
-    const x = (t0) => Math.max(0, Math.min(100, ((t0 - start) / (end - start)) * 100));
-    const y = (n) => 23 - (Math.min(n, top) / top) * 21;
-    let line = "";
-    pts.filter((p) => p[0] >= start).forEach((p, i) => { line += (i ? " L" : "M") + x(p[0]).toFixed(2) + " " + y(p[1]).toFixed(2); });
-    const firstX = x(Math.max(start, pts[0][0])).toFixed(2);
-    $("spark-line").setAttribute("d", line);
-    $("spark-area").setAttribute("d", line + " L100 24 L" + firstX + " 24 Z");
-    svg.removeAttribute("hidden");
-    $("players-cell").title = t("online_day", { n: Math.max(...pts.map((p) => p[1])) });
-  }
   async function refreshInfo() {
     try {
       const i = await invoke("server_info");
       serverInfo = i ? Object.assign({}, i, { at: Date.now() }) : null;
     } catch { serverInfo = null; }
     renderRestart();
-    renderSpark();
   }
   function openRestart() {
     $("restart").hidden = false;
@@ -867,11 +847,13 @@
   const SVG_NS = "http://www.w3.org/2000/svg";
 
   // Social buttons from launcher.config.json "links"; empty url = not shown.
+  // "langs" (20.11, Instagram): only in those window languages; none = every language
   function renderLinks() {
     const nav = $("socials");
     nav.replaceChildren();
-    for (const link of cfg.links || []) {
+    for (const link of (cfg && cfg.links) || []) {
       if (!link.url) continue;
+      if (Array.isArray(link.langs) && link.langs.length && !link.langs.includes(lang)) continue;
       const btn = el("button", "social");
       btn.title = link.label;
       btn.setAttribute("aria-label", link.label);
@@ -1015,7 +997,12 @@
         links: [
           { icon: "vk", label: "ВКонтакте", url: "https://vk.ru/coldz_server" },
           { icon: "youtube", label: "YouTube", url: "https://youtube.com/@coldzgta5" },
-          { icon: "tiktok", label: "TikTok", url: "https://www.tiktok.com/@coldz_gta5" },
+          { icon: "tiktok", label: "TikTok", langs: ["ru", "es"], url: "https://www.tiktok.com/@coldz_gta5" },
+          { icon: "tiktok", label: "TikTok", langs: ["en"], url: "https://www.tiktok.com/@coldz_gta5_en" },
+          { icon: "tiktok", label: "TikTok", langs: ["pt-BR"], url: "https://www.tiktok.com/@coldz_gta5_br" },
+          { icon: "instagram", label: "Instagram", langs: ["ru", "es"], url: "https://www.instagram.com/coldz_gta5_dayz/" },
+          { icon: "instagram", label: "Instagram", langs: ["en"], url: "https://www.instagram.com/coldz_gta5_dayz_en/" },
+          { icon: "instagram", label: "Instagram", langs: ["pt-BR"], url: "https://www.instagram.com/coldz_gta5_dayz_br/" },
           { icon: "telegram", label: "Telegram", url: "" }
         ]
       },
@@ -1118,23 +1105,12 @@
       }
       // 0.5.0: ?hint=fixup|low_disk|two_gta|onedrive|slow_disk|crash — the line after a FiveM crash; &card=report —
       // the support report card, &card=settings — the settings card
-      // 0.5.0: ?restart=<minutes> — a restart announced (1 = the card on «Играть»); ?spark=0 — no online graph
+      // 0.5.0: ?restart=<minutes> — a restart announced (1 = the card on «Играть»)
       if (cmd === "set_tray") return { tray: !!(args && args.on) };
       if (cmd === "minimize_window") return null;
       if (cmd === "server_info") {
         const m = q.get("restart");
-        const now = Math.floor(Date.now() / 1000);
-        const step = 300;
-        const points = [];
-        if (q.get("spark") !== "0") {
-          for (let i = 287; i >= 0; i--) {
-            const t0 = now - now % step - i * step;
-            const h = new Date(t0 * 1000).getHours() + new Date(t0 * 1000).getMinutes() / 60;
-            const wave = Math.max(0, Math.sin(((h - 9) / 24) * Math.PI * 2));
-            points.push([t0, Math.round(4 + wave * 26 + (i % 12 === 0 ? 2 : 0))]);
-          }
-        }
-        return { restartIn: m != null ? Number(m) * 60 - 20 : null, points, step, max: 48 };
+        return { restartIn: m != null ? Number(m) * 60 - 20 : null };
       }
       if (cmd === "crash_hint") {
         const key = q.get("hint");
