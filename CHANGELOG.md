@@ -3,6 +3,24 @@
 Новые версии сверху. Первая строка записи: текст для `npm run release -- -Notes "…"` (он попадает в `latest.json`
 и в описание выпуска на GitHub), ниже подробности. Порядок выпуска: README, раздел 5, и `docs/ПРАВИЛА.md`.
 
+## 0.5.6
+
+- После вылета игры лаунчер предлагает отправить отчёт разработчикам: только по вашему «Отправить», личное из журнала вырезано, снимок памяти только отдельной галочкой.
+- EN: After a game crash the launcher offers to send a report to the developers: only when you press Send, personal data is cut from the log, the memory snapshot only with its own tick.
+- ES: Tras un cierre del juego el lanzador ofrece enviar un informe a los desarrolladores: solo al pulsar Enviar, los datos personales se quitan del registro, la instantánea de memoria solo con su propia casilla.
+- PT-BR: Depois que o jogo fecha com erro, o launcher oferece enviar um relatório para os desenvolvedores: só quando você clica em Enviar, os dados pessoais são tirados do log, o instantâneo da memória só com a própria caixa.
+- Подробнее (`src-tauri/src/crashreport.rs`, README 7п): новые `FiveM.app\crashes\*.dmp` и архивы FiveM
+  `CfxCrashDump_*.zip` (crashes, рабочий стол, «Загрузки») за 3 дня; строка под «Играть» «Игра закрылась с ошибкой
+  <место> (<дата>). Отправить отчёт разработчикам?» [Отправить] [Не отправлять] [Не спрашивать], «Играть» не
+  блокируется; карточка со списком: `report.json`, `crashometry.json` (из архива FiveM), `CitizenFX_log_tail.txt`
+  (300 строк до вылета), `modules.txt` (исключение, модули и версии, стек из дампа); `.dmp` только галочкой. Чистка:
+  `Users\<имя>` → `%USER%`, имя ПК, IPv4/IPv6, почта, токены и ключи, идентификаторы Steam/Discord/license, Rockstar ID →
+  `rid:<хеш с солью>`. ≤ 2 МБ без снимка, ≤ 20 МБ со снимком. `POST https://cdn.coldz.vip/crash/v1/report`
+  (`X-Coldz-Key`), неудача — очередь `crash-outbox` (3 попытки, 7 дней), журнал `crash-report.log`. Выключатель:
+  `news.json → "crashReport": {"enabled": false}`; `{"dump": false}` — без снимков. Новая библиотека `miniz_oxide`
+  (deflate, чистый Rust). Исправлены паники: обрезка журнала больше 256 КБ посреди русской буквы, скрытие имени в
+  тексте с «ẞ»/«İ». Приёмник и разборщик: репозиторий игры, `tools/crashreports`.
+
 ## 0.5.5
 
 - Первый вход: под «Играть» лаунчер пишет, сколько скачает игра (около 6 ГБ файлов сервера) и примерно сколько минут это займёт при вашей скорости; в «Проверить связь» видна скорость до сервера файлов.

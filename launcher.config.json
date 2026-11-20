@@ -68,6 +68,12 @@
   ],
   "cdnSpeedUrl": "https://cdn.coldz.vip/speed/8mb.bin",
   "firstJoinGb": 6,
+  "crashReport": {
+    "enabled": true,
+    "url": "https://cdn.coldz.vip/crash/v1/report",
+    "key": "coldz-crash-v1-4293c103b27efec0",
+    "dump": true
+  },
   "maxPlayers": 48,
   "ownerEmail": "aaenlly@gmail.com",
   "fivemDownloadUrl": "https://fivem.net/",

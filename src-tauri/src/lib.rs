@@ -20,8 +20,12 @@
 //!     before FiveM starts, from FiveM's own address, continuing after a break, checked by SHA-1,
 //!   * 0.5.5: says under «Играть» how much the first join downloads and about how long it takes, from the speed to our
 //!     file server (firstjoin.rs: a test file of `cdnSpeedUrl`, once in 10 minutes; FiveM's own download is not touched),
+//!   * 0.5.6: after a FiveM crash asks under «Играть» whether to send a report to the developers (crashreport.rs: FiveM's
+//!     crash dump and log of that session, read and cleaned here; only on the player's «Отправить», the dump only with
+//!     its own tick; switched off by `crashReport.enabled: false` in news.json),
 //!   * updates itself through the Tauri updater (signed with our own key).
 
+mod crashreport;
 mod firstjoin;
 mod fivem;
 mod gamebuild;
@@ -120,6 +124,10 @@ struct Config {
     /// `firstJoinGb` in news.json wins.
     #[serde(default)]
     first_join_gb: f64,
+    /// 0.5.6 (crashreport.rs): crash reports to our receiver: `enabled`, `url`, `key` (no secret), `dump` (the dump may go
+    /// with its tick). `crashReport` in news.json wins (`{"enabled": false}` switches it off). Missing: off.
+    #[serde(default)]
+    crash_report: crashreport::Switch,
 }
 
 /// 0.5.4: the remote switch for writing CitizenFX.ini (gamebuild.rs).
@@ -317,6 +325,10 @@ fn apply_feed(v: &serde_json::Value) {
     // launcher.config.json
     if let Ok(mut slot) = remote_join().write() {
         *slot = firstjoin::Feed::of(v);
+    }
+    // 0.5.6: `crashReport` ({"enabled": false} = no questions, no sending); missing or bad keys = launcher.config.json
+    if let Ok(mut slot) = remote_crash().write() {
+        *slot = crashreport::Feed::of(v);
     }
 }
 
@@ -1808,7 +1820,8 @@ async fn crash_hint(app: AppHandle) -> Option<support::Hint> {
 }
 
 fn launcher_logs(app: &AppHandle) -> Vec<PathBuf> {
-    [net_log_path(app), search_log_path(app)].into_iter().flatten().collect()
+    // 0.5.6: and the crash reports' log (crashreport.rs)
+    [net_log_path(app), search_log_path(app), crash_log_path(app)].into_iter().flatten().collect()
 }
 
 /// Our own addresses may stay in the report: the server, the reserve routes, the relays of the sign-in route.
@@ -1903,6 +1916,305 @@ async fn support_create(app: AppHandle, with_dump: bool) -> Result<SupportDone, 
     })
     .await
     .map_err(|_| "write_failed".to_string())?
+}
+
+// ---------------------------------------------------------------- crash reports (0.5.6, crashreport.rs)
+
+/// 0.5.6: `crashReport` from news.json. Default: no key, launcher.config.json decides.
+fn remote_crash() -> &'static RwLock<crashreport::Feed> {
+    static S: OnceLock<RwLock<crashreport::Feed>> = OnceLock::new();
+    S.get_or_init(|| RwLock::new(crashreport::Feed::default()))
+}
+
+/// The receiver, its key and the switches in use: news.json wins over launcher.config.json.
+fn crash_setup() -> crashreport::Setup {
+    let feed = remote_crash().read().map(|g| g.clone()).unwrap_or_default();
+    crashreport::setup(&feed, &config().crash_report)
+}
+
+/// `<app config dir>\crash-report.log`: what was found, asked, answered, sent (and why not).
+fn crash_log_path(app: &AppHandle) -> Option<PathBuf> {
+    config_dir(app).map(|d| d.join("crash-report.log"))
+}
+
+/// `<app config dir>\crash-outbox`: reports that did not go out yet.
+fn crash_outbox(app: &AppHandle) -> Option<PathBuf> {
+    config_dir(app).map(|d| d.join("crash-outbox"))
+}
+
+fn crash_log(app: &AppHandle, title: &str, lines: &[String]) {
+    if let Some(log) = crash_log_path(app) {
+        fivem::write_log(&log, title, lines);
+    }
+}
+
+fn crash_state(app: &AppHandle) -> crashreport::State {
+    settings_path(app).map(|p| nick::load(&p).crash_report).unwrap_or_default()
+}
+
+/// The salt that hashes the Rockstar ID: made once, kept in settings.json, never sent.
+fn crash_salt(app: &AppHandle) -> String {
+    let (s, _) = update_settings(app, |s| {
+        if s.crash_report.salt.is_empty() {
+            s.crash_report.salt = nick::new_launcher_id();
+        }
+    });
+    s.crash_report.salt
+}
+
+/// FiveM's crashes on this PC (crashreport.rs `scan`) and FiveM's log folder.
+fn crash_scan(app: &AppHandle) -> (Vec<crashreport::Crash>, Option<PathBuf>) {
+    let app_dir = fivem_exe_quiet(app).map(|exe| support::app_dir(&exe));
+    let crashes = app_dir.as_ref().map(|d| d.join("crashes"));
+    let packs: Vec<PathBuf> = [support::desktop_dir(), crashreport::downloads_dir()].into_iter().flatten().collect();
+    (crashreport::scan(crashes.as_deref(), &packs, netcheck::unix_now()), app_dir.map(|d| d.join("logs")))
+}
+
+fn crash_ctx(app: &AppHandle, lang: &str, logs: Option<PathBuf>, new_count: usize) -> crashreport::Ctx {
+    crashreport::Ctx {
+        launcher: app.package_info().version.to_string(),
+        lang: if ["ru", "en", "es", "pt-BR"].contains(&lang) { lang.to_string() } else { String::new() },
+        clean: crashreport::Clean { scrub: support::Scrub::of_this_pc(our_ips()), salt: crash_salt(app), rockstar: Vec::new() },
+        windows: support::windows_version(),
+        gpus: crashreport::gpus(),
+        ram_gb: crashreport::ram_gb(),
+        logs,
+        new_count,
+    }
+}
+
+/// The crash the window asked about last (the log gets one line per crash, not one per look).
+fn crash_asked() -> &'static std::sync::Mutex<String> {
+    static S: OnceLock<std::sync::Mutex<String>> = OnceLock::new();
+    S.get_or_init(|| std::sync::Mutex::new(String::new()))
+}
+
+/// 0.5.6: a FiveM crash the player has not answered about (the line under «Играть»). None: nothing new, «Не спрашивать»,
+/// or switched off. Also sends, once per run in the background, reports that did not go out last time.
+#[tauri::command]
+async fn crash_pending(app: AppHandle) -> Option<crashreport::Ask> {
+    let setup = crash_setup();
+    if !setup.enabled {
+        return None;
+    }
+    crash_resend(&app, &setup);
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = crash_state(&app);
+        let (found, logs) = crash_scan(&app);
+        let (c, count) = crashreport::pending(&found, &state)?;
+        let (hash, key) = crashreport::quick_hash(&c, logs.as_deref());
+        let new = crash_asked()
+            .lock()
+            .map(|mut g| {
+                let new = *g != c.id;
+                *g = c.id.clone();
+                new
+            })
+            .unwrap_or(false);
+        if new {
+            let place = if hash.is_empty() { "не известно".to_string() } else { hash.clone() };
+            crash_log(&app, "вылет FiveM: спрашиваем, отправить ли отчёт", &[format!("{} ({}), место {place}, новых вылетов {count}", c.id, fivem::utc_stamp(c.at))]);
+        }
+        Some(crashreport::Ask { id: c.id, at: c.at, hash, key, count })
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+/// 0.5.6: what the report about this crash holds (the card, before anything is sent).
+#[tauri::command]
+async fn crash_preview(app: AppHandle, id: String) -> Option<crashreport::Preview> {
+    let setup = crash_setup();
+    if !setup.enabled {
+        return None;
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let (found, logs) = crash_scan(&app);
+        let c = found.into_iter().find(|c| c.id == id)?;
+        let p = crashreport::prepare(&c, &crash_ctx(&app, "", logs, 0));
+        Some(crashreport::preview(&p, setup.dump))
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CrashSent {
+    /// "sent" | "queued" (again at the next start) | "refused" | "failed"
+    status: &'static str,
+    /// The dump went with it.
+    dump: bool,
+    /// Why the ticked dump stayed: "" | "too_big" | "unreadable" | "off"
+    dump_skipped: &'static str,
+}
+
+/// After a try: sent or refused — the file goes; not now — one more try counted, the file waits for the next start.
+fn crash_after_send(app: &AppHandle, file: &str, sent: &crashreport::Sent, in_outbox: bool) -> &'static str {
+    let gone = !matches!(sent, crashreport::Sent::Retry(_));
+    let _ = update_settings(app, |s| {
+        let ob = &mut s.crash_report.outbox;
+        if gone {
+            ob.retain(|p| p.file != file);
+        } else if let Some(p) = ob.iter_mut().find(|p| p.file == file) {
+            p.tries = p.tries.saturating_add(1);
+        }
+    });
+    if gone && crashreport::safe_file_name(file) {
+        if let Some(d) = crash_outbox(app) {
+            let _ = std::fs::remove_file(d.join(file));
+        }
+    }
+    match sent {
+        crashreport::Sent::Ok(_) => "sent",
+        crashreport::Sent::Retry(_) if in_outbox => "queued",
+        crashreport::Sent::Retry(_) => "failed",
+        crashreport::Sent::Refused(_) => "refused",
+    }
+}
+
+fn crash_sent_line(sent: &crashreport::Sent, attempt: u32) -> String {
+    match sent {
+        crashreport::Sent::Ok(id) => format!("отправлен: приёмник принял{}", if id.is_empty() { String::new() } else { format!(", номер {id}") }),
+        crashreport::Sent::Retry(why) => {
+            format!("не отправлен (попытка {attempt} из {}): {why}; повтор при следующем запуске", crashreport::OUTBOX_TRIES)
+        }
+        crashreport::Sent::Refused(why) => format!("приёмник отказал: {why}; файл удалён, повтора не будет"),
+    }
+}
+
+/// 0.5.6: «Отправить» in the card: the report is made (texts cleaned, the dump only with `with_dump`), kept in the outbox,
+/// sent at once. Whatever happens: this crash is answered (not asked about again). Err: "busy" | "off" | "not_found" |
+/// "too_big" | "build".
+#[tauri::command]
+async fn crash_send(app: AppHandle, id: String, with_dump: bool, lang: String) -> Result<CrashSent, String> {
+    static ONE: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    let Ok(_one) = ONE.get_or_init(|| tokio::sync::Mutex::new(())).try_lock() else {
+        return Err("busy".into());
+    };
+    let setup = crash_setup();
+    if !setup.enabled {
+        return Err("off".into());
+    }
+    let handle = app.clone();
+    let dump_allowed = setup.dump;
+    let built = tauri::async_runtime::spawn_blocking(move || {
+        let state = crash_state(&handle);
+        let (found, logs) = crash_scan(&handle);
+        let new_count = found.iter().filter(|x| x.at > state.seen).count();
+        let c = found.into_iter().find(|c| c.id == id).ok_or_else(|| "not_found".to_string())?;
+        let p = crashreport::prepare(&c, &crash_ctx(&handle, &lang, logs, new_count));
+        let packed = crashreport::pack(&p, with_dump, dump_allowed)?;
+        Ok::<_, String>((c, p.hash.clone(), packed))
+    })
+    .await
+    .map_err(|_| "build".to_string())?;
+    let (crash, hash, packed) = match built {
+        Ok(b) => b,
+        Err(e) => {
+            crash_log(&app, "отчёт о вылете не собран", &[e.clone()]);
+            return Err(e);
+        }
+    };
+    let now = netcheck::unix_now();
+    let name = crashreport::outbox_name(&crash, now);
+    let saved = crash_outbox(&app).map(|d| crashreport::outbox_put(&d, &name, &packed.bytes));
+    let in_outbox = matches!(saved, Some(Ok(_)));
+    let _ = update_settings(&app, |s| {
+        let st = &mut s.crash_report;
+        st.seen = st.seen.max(crash.at);
+        if in_outbox {
+            st.outbox.push(crashreport::Pending { file: name.clone(), at: now, tries: 0, hash: hash.clone(), dump: packed.dump_attached });
+        }
+    });
+    let size = packed.bytes.len();
+    let (dump_attached, dump_skipped) = (packed.dump_attached, packed.dump_skipped);
+    let sent = crashreport::send(&setup.url, &setup.key, packed.bytes).await;
+    let status = crash_after_send(&app, &name, &sent, in_outbox);
+    let dump_line = if dump_attached {
+        "приложен".to_string()
+    } else if with_dump {
+        format!("не приложен ({dump_skipped})")
+    } else {
+        "нет".to_string()
+    };
+    let mut lines = vec![
+        format!("{} ({}), место {}", crash.id, fivem::utc_stamp(crash.at), if hash.is_empty() { "не известно" } else { &hash }),
+        format!("{name}: {size} байт, снимок памяти: {dump_line}"),
+        crash_sent_line(&sent, 1),
+    ];
+    if let Some(Err(e)) = &saved {
+        lines.push(format!("в очередь не записан: {e}"));
+    }
+    crash_log(&app, "отчёт о вылете: игрок нажал «Отправить»", &lines);
+    Ok(CrashSent { status, dump: dump_attached, dump_skipped })
+}
+
+/// 0.5.6: «Не отправлять» (this crash and older ones are not asked about again) or «Не спрашивать» (no more questions).
+#[tauri::command]
+fn crash_answer(app: AppHandle, at: u64, never: bool) {
+    let at = at.min(netcheck::unix_now());
+    let _ = update_settings(&app, |s| {
+        let st = &mut s.crash_report;
+        st.seen = st.seen.max(at);
+        st.never |= never;
+    });
+    let title = if never { "отчёт о вылете: «Не спрашивать»" } else { "отчёт о вылете: «Не отправлять»" };
+    crash_log(&app, title, &[format!("вылет {}", fivem::utc_stamp(at))]);
+}
+
+/// Reports that did not go out last time (crash-outbox): once per run, in the background, one after another; too old,
+/// too many tries or too many files: deleted.
+fn crash_resend(app: &AppHandle, setup: &crashreport::Setup) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static ONCE: AtomicBool = AtomicBool::new(false);
+    if ONCE.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let (app, setup) = (app.clone(), setup.clone());
+    tauri::async_runtime::spawn(async move {
+        let Some(dir) = crash_outbox(&app) else { return };
+        let now = netcheck::unix_now();
+        let (send, drop) = crashreport::outbox_plan(&crash_state(&app), now);
+        if !drop.is_empty() {
+            let gone: Vec<String> = drop.iter().map(|p| p.file.clone()).collect();
+            let _ = update_settings(&app, |s| s.crash_report.outbox.retain(|p| !gone.contains(&p.file)));
+            for p in drop.iter().filter(|p| crashreport::safe_file_name(&p.file)) {
+                let _ = std::fs::remove_file(dir.join(&p.file));
+            }
+            let lines: Vec<String> = drop.iter().map(|p| format!("{} (попыток {}, от {})", p.file, p.tries, fivem::utc_stamp(p.at))).collect();
+            crash_log(&app, "очередь отчётов о вылетах: удалены (старше 7 дней, 3 попытки или больше 3 файлов)", &lines);
+        }
+        for p in send {
+            let path = dir.join(&p.file);
+            let bytes = tauri::async_runtime::spawn_blocking(move || std::fs::read(&path)).await.ok().and_then(|r| r.ok());
+            let Some(bytes) = bytes.filter(|b| !b.is_empty() && b.len() <= crashreport::LIMIT_DUMP) else {
+                let file = p.file.clone();
+                let _ = update_settings(&app, |s| s.crash_report.outbox.retain(|x| x.file != file));
+                crash_log(&app, "очередь отчётов о вылетах: файла нет", &[p.file.clone()]);
+                continue;
+            };
+            let sent = crashreport::send(&setup.url, &setup.key, bytes).await;
+            crash_after_send(&app, &p.file, &sent, true);
+            crash_log(&app, "очередь отчётов о вылетах: повтор", &[p.file.clone(), crash_sent_line(&sent, p.tries.saturating_add(1))]);
+        }
+        // files settings.json no longer knows (a lost settings.json, a half-written .part): a week later they go
+        let known: Vec<String> = crash_state(&app).outbox.into_iter().map(|p| p.file).collect();
+        for e in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let old = e
+                .metadata()
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.elapsed().ok())
+                .map_or(false, |a| a.as_secs() > crashreport::OUTBOX_SECS);
+            if old && !known.contains(&name) && name.starts_with("crash-") {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+    });
 }
 
 // ---------------------------------------------------------------- links
@@ -2101,11 +2413,34 @@ const TRAY_ID: &str = "coldz";
 #[serde(rename_all = "camelCase")]
 struct Prefs {
     tray: bool,
+    /// 0.5.6: ask about sending a crash report (false after «Не спрашивать»).
+    crash_ask: bool,
+    /// 0.5.6: crash reports are switched on (launcher.config.json / news.json): the settings card shows the checkbox.
+    crash_on: bool,
+}
+
+fn prefs_now(app: &AppHandle) -> Prefs {
+    let s = settings_path(app).map(|p| nick::load(&p)).unwrap_or_default();
+    Prefs { tray: s.tray, crash_ask: !s.crash_report.never, crash_on: crash_setup().enabled }
 }
 
 #[tauri::command]
 fn get_prefs(app: AppHandle) -> Prefs {
-    Prefs { tray: settings_path(&app).map(|p| nick::load(&p).tray).unwrap_or(false) }
+    prefs_now(&app)
+}
+
+/// 0.5.6: «Предлагать отправить отчёт после вылета игры» in «Настройки». On again: only crashes after now are asked about.
+#[tauri::command]
+fn set_crash_ask(app: AppHandle, on: bool) -> Prefs {
+    let now = netcheck::unix_now();
+    let _ = update_settings(&app, |s| {
+        s.crash_report.never = !on;
+        if on {
+            s.crash_report.seen = s.crash_report.seen.max(now);
+        }
+    });
+    crash_log(&app, if on { "настройки: спрашивать об отчётах снова" } else { "настройки: не спрашивать об отчётах" }, &[]);
+    prefs_now(&app)
 }
 
 /// The tray icon with its menu («Открыть», «Выйти» in the window's language); a left click opens the window.
@@ -2157,7 +2492,7 @@ fn set_tray(app: AppHandle, on: bool, open: String, quit: String) -> Prefs {
     } else if let Some(t) = app.remove_tray_by_id(TRAY_ID) {
         drop(t);
     }
-    Prefs { tray: on }
+    Prefs { tray: on, ..prefs_now(&app) }
 }
 
 /// The minimize button and the auto-minimize after «Играть»: to the tray when it is on, else the taskbar.
@@ -2237,7 +2572,12 @@ pub fn run() {
             server_info,
             support_preview,
             support_create,
-            join_info
+            join_info,
+            crash_pending,
+            crash_preview,
+            crash_send,
+            crash_answer,
+            set_crash_ask
         ])
         .build(tauri::generate_context!())
         .expect("error while building COLDZ launcher")
@@ -2372,6 +2712,20 @@ mod tests {
         assert_eq!(join_setup(), built_in);
         apply_feed(&serde_json::json!({ "items": [] }));
         assert_eq!(join_setup(), built_in);
+
+        // 0.5.6 (crashreport.rs, the same global slots): launcher.config.json says on; the signed news.json switches the
+        // reports off (and the settings card hides its checkbox), only the dump off, another receiver; no key: back
+        let built_in = crash_setup();
+        assert!(built_in.enabled && built_in.dump);
+        apply_feed(&serde_json::json!({ "items": [], "crashReport": { "enabled": false } }));
+        assert!(!crash_setup().enabled);
+        apply_feed(&serde_json::json!({ "items": [], "crashReport": { "dump": false, "url": "https://coldz.vip/crash/v1/report" } }));
+        let s = crash_setup();
+        assert!(s.enabled && !s.dump && s.url == "https://coldz.vip/crash/v1/report");
+        apply_feed(&serde_json::json!({ "items": [], "crashReport": { "url": "http://plain.example/report", "enabled": "no" } }));
+        assert_eq!(crash_setup(), built_in);
+        apply_feed(&serde_json::json!({ "items": [] }));
+        assert_eq!(crash_setup(), built_in);
     }
 
     #[test]
@@ -2506,6 +2860,53 @@ mod tests {
             assert!(i18n.contains(&format!("{key}: \"{{n}} минут")), "{key}: Russian plural forms");
         }
         assert!(app.contains("invoke(\"join_info\""));
+    }
+
+    // 0.5.6 (crashreport.rs): the crash-report texts on 4 languages, simple and neutral; «Играть» never waits for them;
+    // the memory snapshot starts unticked
+    #[test]
+    fn crash_report_texts_in_the_window() {
+        let i18n = include_str!("../../ui/i18n.js");
+        let bad_words = ["—", "–", "vpn", "ускорит", "accelerat", "acelerad", "обход", "bypass"];
+        let keys = [
+            "crash_ask", "crash_ask_nohash", "crash_send", "crash_no", "crash_never", "crash_title", "crash_text", "crash_text_nohash",
+            "crash_loading", "crash_item_crashometry", "crash_item_log", "crash_item_modules", "crash_item_info", "crash_dump",
+            "crash_note", "crash_go", "crash_cancel", "crash_sending", "crash_sent", "crash_sent_nodump", "crash_queued",
+            "crash_failed", "pref_crash",
+        ];
+        for key in keys {
+            let lines: Vec<&str> = i18n.lines().filter(|l| l.trim_start().starts_with(&format!("{key}:"))).collect();
+            assert_eq!(lines.len(), 4, "{key}: ru, en, es, pt-BR");
+            for l in &lines {
+                let low = l.to_lowercase();
+                for bad in bad_words {
+                    assert!(!low.contains(bad), "{bad} in {l}");
+                }
+            }
+        }
+        for l in i18n.lines().filter(|l| l.trim_start().starts_with("crash_ask:") || l.trim_start().starts_with("crash_text:")) {
+            assert!(l.contains("{h}") && l.contains("{d}"), "the place and the date: {l}");
+        }
+        for l in i18n.lines().filter(|l| l.trim_start().starts_with("crash_dump:")) {
+            assert!(l.contains("{s}"), "the size: {l}");
+        }
+        assert!(i18n.contains("crash_ask: \"Игра закрылась с ошибкой {h} ({d}). Отправить отчёт разработчикам?\""));
+        // every item the card lists has its line (crashreport.rs `preview`)
+        for key in ["crashometry", "log", "modules", "info"] {
+            assert!(i18n.contains(&format!("crash_item_{key}:")), "{key}");
+        }
+        let app = include_str!("../../ui/app.js");
+        for cmd in ["crash_pending", "crash_preview", "crash_send", "crash_answer", "set_crash_ask"] {
+            assert!(app.contains(&format!("invoke(\"{cmd}\"")), "{cmd}");
+        }
+        // «Играть» does not touch crash reports at all
+        let play = app.find("async function play(").expect("play");
+        let after = app[play..].find("// ------------------------------------------------------------ news + rules").expect("next section");
+        assert!(!app[play..play + after].contains("crash"), "play() must not wait for crash reports");
+        // the snapshot only with its own tick, unticked every time the card opens
+        assert!(app.contains("$(\"crash-dump\").checked = false;"));
+        let html = include_str!("../../ui/index.html");
+        assert!(html.contains("<input type=\"checkbox\" id=\"crash-dump\">"), "unticked in the page");
     }
 
     #[test]
@@ -2745,6 +3146,10 @@ mod tests {
         assert_eq!(c.cdn_speed_url, "https://cdn.coldz.vip/speed/8mb.bin");
         assert!(firstjoin::valid_url(&c.cdn_speed_url));
         assert_eq!(c.first_join_gb, 6.0);
+        // 0.5.6: crash reports on, an https receiver on our file server, a client key (no secret)
+        assert!(c.crash_report.enabled && c.crash_report.dump);
+        assert_eq!(c.crash_report.url, "https://cdn.coldz.vip/crash/v1/report");
+        assert!(crashreport::valid_url(&c.crash_report.url) && crashreport::valid_key(&c.crash_report.key));
         let news: serde_json::Value = serde_json::from_str(BUNDLED_NEWS).unwrap();
         assert!(valid_news(&news));
         if let Some(a) = news.get("serverAddress").and_then(|a| a.as_str()) {

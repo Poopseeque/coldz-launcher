@@ -375,6 +375,13 @@ button, select { font: inherit; color: inherit; }
 #report-result[data-state="ok"] { color: #c9f5d9; }
 #report-result[data-state="bad"] { color: #ffb4b8; }
 
+/* 0.5.6: after a FiveM crash: send a report to the developers? (crashreport.rs), amber like the crash hint */
+.fivem[data-state="crash"] .fivem__text { color: #ffe3a3; }
+.fivem[data-state="crash"] .fivem__text::before { content: "! "; color: var(--amber); font-weight: 700; }
+#crash-result[data-state="ok"] { color: #c9f5d9; }
+#crash-result[data-state="bad"] { color: #ffb4b8; }
+#crash-note { font-size: 13px; }
+
 /* ---------- news / rules panel */
 .panel {
   display: flex; flex-direction: column;

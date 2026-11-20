@@ -628,7 +628,7 @@ pub fn scrub(text: &str, s: &Scrub) -> String {
 
 // ---------------------------------------------------------------- zip (stored, no extra crate)
 
-fn crc32(data: &[u8]) -> u32 {
+pub fn crc32(data: &[u8]) -> u32 {
     static TABLE: std::sync::OnceLock<[u32; 256]> = std::sync::OnceLock::new();
     let table = TABLE.get_or_init(|| {
         let mut t = [0u32; 256];

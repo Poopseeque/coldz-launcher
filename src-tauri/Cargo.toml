@@ -32,6 +32,9 @@ ring = "0.17"
 # 0.5.0: the signature of news.json (minisign, its own key). Both are already in the tree through the updater.
 minisign-verify = "0.3"
 base64 = "0.23"
+# 0.5.6 (crashreport.rs): FiveM's crash packs are deflate zips, and the report with the dump is packed: pure Rust,
+# no unsafe code, already in Cargo.lock (0.8.9, through png).
+miniz_oxide = "0.8"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "io-util"] }
@@ -40,8 +43,13 @@ tokio = { version = "1", features = ["rt", "io-util"] }
 winreg = "0.55"
 # FiveM already running? (running.rs: process list, visible windows, close stuck FiveM). 0.59 is already in the tree.
 # 0.3.2 (fivem.rs): Desktop, Downloads and Start menu folders (UI_Shell, System_Com), the "Choose FiveM.exe" dialog
-# (UI_Controls_Dialogs), shortcut paths in the ANSI code page (Globalization)
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Ioctl", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_System_Com", "Win32_UI_Controls_Dialogs", "Win32_Globalization"] }
+# (UI_Controls_Dialogs), shortcut paths in the ANSI code page (Globalization); 0.5.6: memory size for crash reports
+# (System_SystemInformation)
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Ioctl", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_System_Com", "Win32_UI_Controls_Dialogs", "Win32_Globalization", "Win32_System_SystemInformation"] }
+
+# 0.5.6: tests pack crash dumps of several MB: miniz_oxide optimized in debug builds too (release is unchanged)
+[profile.dev.package.miniz_oxide]
+opt-level = 3
 
 [profile.release]
 codegen-units = 1

@@ -25,6 +25,7 @@
   const INFO_EVERY_MS = 60000;
   const RESTART_WARN_S = 120;  // «Играть» asks this long before the restart
   let crashHint = null;      // 0.5.0: { key, detail, gb, at } after a fresh FiveM crash (src-tauri/src/support.rs)
+  let crashAsk = null;       // 0.5.6: { id, at, hash, key, count }: a FiveM crash to ask about (src-tauri/src/crashreport.rs)
 
   // ------------------------------------------------------------ language
   function storageGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
@@ -60,6 +61,7 @@
     renderRules();
     renderNet();
     renderReport();
+    renderCrash();
     renderSettings();
     renderRestart();
     renderUpdate();
@@ -198,6 +200,7 @@
     $("fivem-stuck").hidden = !(showing && fivemMessage.stuck);
     $("fivem-net").hidden = true;
     $("fivem-hint").hidden = true;
+    $("fivem-crash").hidden = true;
     $("fivem-storage").hidden = true;
     $("storage-bar").hidden = true;
     // 0.5.4: the game file for the server is being downloaded (or stopped): that line and its buttons
@@ -233,6 +236,15 @@
       actions.hidden = true;
       $("fivem-net").hidden = false;
       $("btn-net-retry").disabled = !!net.running;
+      return;
+    }
+    // 0.5.6: a fresh FiveM crash the player has not answered about: «Отправить отчёт разработчикам?» (crashreport.rs).
+    // «Играть» stays enabled; after the answer the 0.5.0 hint below comes back.
+    if (fivemInstalled && crashAsk) {
+      box.dataset.state = "crash";
+      text.textContent = crashAskText(crashAsk);
+      actions.hidden = true;
+      $("fivem-crash").hidden = false;
       return;
     }
     // 0.5.0: after a fresh FiveM crash, one simple line about the likely cause (until the player hides it)
@@ -369,6 +381,117 @@
     renderFivem();
   }
 
+  // ------------------------------------------------------------ crash reports (0.5.6, crashreport.rs)
+  // After a FiveM crash the line under «Играть» asks whether to send a report to the developers; «Отправить» opens the
+  // card with what goes (texts cleaned by the launcher, the memory snapshot only with its own tick), and only its own
+  // «Отправить» sends. Nothing here blocks «Играть»; errors only go to crash-report.log.
+  const CRASH_LOOK_MS = 30000;   // a look for new crashes when the window comes back, not more often
+  const crash = { ask: null, plan: null, busy: false, result: null, at: 0, looking: false };
+  async function loadCrash() {
+    if (crash.looking || busy) return;
+    crash.looking = true;
+    crash.at = Date.now();
+    try { crashAsk = (await invoke("crash_pending")) || null; } catch (e) { console.info("crash report:", e); crashAsk = null; }
+    crash.looking = false;
+    renderFivem();
+  }
+  // «hotel-jersey-london (GTA5_b3889.exe+92B364)» or just the place
+  function crashPlace(a) {
+    if (a.key && a.hash) return a.key + " (" + a.hash + ")";
+    return a.hash || a.key || "";
+  }
+  function crashAskText(a) {
+    const h = crashPlace(a);
+    return t(h ? "crash_ask" : "crash_ask_nohash", { h, d: formatTime(a.at) });
+  }
+  // «Не отправлять» (this crash and older ones) or «Не спрашивать» (no more questions; Settings turns it back on)
+  async function answerCrash(never) {
+    const a = crashAsk;
+    if (!a) return;
+    crashAsk = null;
+    renderFivem();
+    try { await invoke("crash_answer", { at: a.at, never: !!never }); } catch (e) { console.info("crash answer:", e); }
+    if (never) {
+      prefs = Object.assign({}, prefs, { crashAsk: false });
+      renderSettings();
+    }
+  }
+  async function openCrash() {
+    const a = crashAsk;
+    if (!a) return;
+    Object.assign(crash, { ask: a, plan: null, busy: false, result: null });
+    $("crash-dump").checked = false;
+    $("crash").hidden = false;
+    renderCrash();
+    $("btn-crash-close").focus();
+    try { crash.plan = (await invoke("crash_preview", { id: a.id })) || { items: [], dump: null, missing: true }; }
+    catch (e) { console.info("crash preview:", e); crash.plan = { items: [], dump: null, missing: true }; }
+    renderCrash();
+  }
+  function closeCrash() {
+    $("crash").hidden = true;
+  }
+  function renderCrash() {
+    if ($("crash").hidden) return;
+    const a = crash.ask;
+    const h = a ? crashPlace(a) : "";
+    $("crash-text").textContent = a ? t(h ? "crash_text" : "crash_text_nohash", { h, d: formatTime(a.at) }) : "";
+    const list = $("crash-list");
+    list.replaceChildren();
+    const p = crash.plan;
+    if (!p) {
+      const li = el("li");
+      li.dataset.state = "wait";
+      li.append(el("span", null, t("crash_loading")), el("span", "netlist__state", ""));
+      list.append(li);
+    } else {
+      for (const it of p.items || []) {
+        const li = el("li");
+        li.dataset.state = "ok";
+        li.append(el("span", null, t("crash_item_" + it.key)), el("span", "netlist__state", formatSize(it.size)));
+        list.append(li);
+      }
+    }
+    const r = crash.result;
+    const dump = p && p.dump;
+    $("crash-dump-box").hidden = !dump || !!r;
+    if (dump) $("crash-dump-text").textContent = t("crash_dump", { s: formatSize(dump) });
+    $("crash-dump").disabled = crash.busy;
+    $("crash-result").hidden = !r;
+    if (r) {
+      $("crash-result").dataset.state = r.ok ? "ok" : "bad";
+      $("crash-result").textContent = t(r.key);
+    }
+    const go = $("btn-crash-go");
+    go.hidden = !!r;
+    go.disabled = !p || !!p.missing || crash.busy;
+    go.textContent = t(crash.busy ? "crash_sending" : "crash_go");
+    $("btn-crash-close").textContent = t(r ? "close" : "crash_cancel");
+  }
+  async function sendCrash() {
+    const a = crash.ask;
+    if (!a || crash.busy || !crash.plan || crash.plan.missing) return;
+    const withDump = !!(crash.plan.dump && $("crash-dump").checked);
+    crash.busy = true;
+    renderCrash();
+    let res = null;
+    try { res = await invoke("crash_send", { id: a.id, withDump, lang }); } catch (e) { console.info("crash send:", e); }
+    crash.busy = false;
+    if (res && res.status === "sent") {
+      crash.result = { ok: true, key: withDump && !res.dump && res.dumpSkipped === "too_big" ? "crash_sent_nodump" : "crash_sent" };
+    } else if (res && res.status === "queued") {
+      crash.result = { ok: true, key: "crash_queued" };
+    } else {
+      crash.result = { ok: false, key: "crash_failed" };
+      // the report could not even be made: do not ask about this crash again
+      if (!res) invoke("crash_answer", { at: a.at, never: false }).catch(() => {});
+    }
+    // answered either way: the line under «Играть» goes
+    if (crashAsk && crashAsk.id === a.id) crashAsk = null;
+    renderCrash();
+    renderFivem();
+  }
+
   function formatSize(n) {
     if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + " " + t("unit_mb");
     if (n >= 1024) return Math.round(n / 1024) + " " + t("unit_kb");
@@ -474,13 +597,24 @@
     $("settings").hidden = false;
     renderSettings();
     $("btn-settings-close").focus();
+    // 0.5.6: news.json may have switched crash reports on or off since the start
+    invoke("get_prefs").then((p) => { if (p) prefs = p; renderSettings(); }).catch(() => {});
   }
   function renderSettings() {
     if ($("settings").hidden) return;
     $("pref-tray").checked = !!prefs.tray;
+    // 0.5.6: «Предлагать отправить отчёт после вылета» (only while crash reports are on)
+    $("pref-crash-box").hidden = !prefs.crashOn;
+    $("pref-crash").checked = prefs.crashAsk !== false;
+  }
+  async function setCrashAsk(on) {
+    try { prefs = (await invoke("set_crash_ask", { on })) || prefs; } catch (e) { console.warn("crash ask:", e); }
+    if (!on) crashAsk = null;
+    renderSettings();
+    renderFivem();
   }
   // 0.5.0: «Сворачивать в трей»; the tray menu speaks the window's language
-  let prefs = { tray: false };
+  let prefs = { tray: false, crashAsk: true, crashOn: false };
   async function setTray(on) {
     try { prefs = (await invoke("set_tray", { on, open: t("tray_open"), quit: t("tray_quit") })) || prefs; } catch (e) { console.warn("tray:", e); }
     renderSettings();
@@ -1050,6 +1184,13 @@
     $("btn-restart-close").onclick = () => { $("restart").hidden = true; };
     $("btn-hint-report").onclick = openReport;
     $("btn-hint-hide").onclick = hideHint;
+    // 0.5.6: crash reports (crashreport.rs)
+    $("btn-crash-send").onclick = openCrash;
+    $("btn-crash-no").onclick = () => answerCrash(false);
+    $("btn-crash-never").onclick = () => answerCrash(true);
+    $("btn-crash-go").onclick = sendCrash;
+    $("btn-crash-close").onclick = closeCrash;
+    $("pref-crash").onchange = (e) => setCrashAsk(e.target.checked);
     $("btn-settings").onclick = openSettings;
     $("btn-settings-close").onclick = () => { $("settings").hidden = true; };
     $("btn-report-open").onclick = openReport;
@@ -1058,6 +1199,7 @@
     document.addEventListener("keydown", (e) => {
       if (e.key !== "Escape") return;
       if (!$("restart").hidden) $("restart").hidden = true;
+      else if (!$("crash").hidden) closeCrash();
       else if (!$("report").hidden) $("report").hidden = true;
       else if (!$("settings").hidden) $("settings").hidden = true;
       else if (!$("net").hidden) closeNet();
@@ -1087,7 +1229,8 @@
     // check once, quietly: about a second and ~70 KB; only a problem shows up (the line under «Играть»), and «Играть»
     // within a minute of a good result does not wait for a new one.
     // 0.5.5: the first-join line at once (news.json may change the size), the file-server speed after the check
-    loadNews().then(() => { refreshStatus(); refreshJoin(false); runNetCheck().then(() => refreshJoin(true)); refreshInfo(); });
+    // 0.5.6: crash reports after the news: a signed news.json may switch them off (crashReport.enabled: false)
+    loadNews().then(() => { refreshStatus(); refreshJoin(false); runNetCheck().then(() => refreshJoin(true)); refreshInfo(); loadCrash(); });
     setTimeout(checkUpdate, 1500);
     T.event.listen("update-ready", () => { updateReady = true; renderUpdate(); }).catch(() => {});
     T.event.listen("storage-progress", (e) => onStorageProgress(e.payload)).catch(() => {});
@@ -1100,7 +1243,11 @@
     // Endless animations pause while the window is not active (e.g. during the game).
     const setIdle = (idle) => document.body.classList.toggle("idle", idle);
     setIdle(!document.hasFocus());
-    window.addEventListener("focus", () => { setIdle(false); refreshFivem(); refreshStatus(); if (join) refreshJoin(false); });
+    window.addEventListener("focus", () => {
+      setIdle(false); refreshFivem(); refreshStatus(); if (join) refreshJoin(false);
+      // 0.5.6: back from a game that crashed: look for a new crash (not more often than every 30 s)
+      if (crash.at && Date.now() - crash.at > CRASH_LOOK_MS) loadCrash();
+    });
     window.addEventListener("blur", () => setIdle(true));
   }
 
@@ -1126,6 +1273,8 @@
   // toggles the preview state (&signin=cancel — the Windows prompt is declined).
   // 0.5.5: ?join=first — the first join (the line under «Играть»), ?join=update — a returning player with news.json
   // updateHint; &speed=<MB/s> (default 8.9) | fail | none | off — the file-server speed (with &card=check: its line).
+  // 0.5.6: ?crash=1 — a FiveM crash to ask about (?crash=nohash — the place is not known), &card=crash — the card opens;
+  // &crashsend=queued|fail|big — the receiver does not answer / the report cannot be made / the snapshot is too big.
   function previewTauri() {
     const q = new URLSearchParams(location.search);
     let netCalls = 0;
@@ -1137,6 +1286,7 @@
     if (card === "report" || card === "settings") {
       setTimeout(() => document.getElementById(card === "report" ? "btn-report-open" : "btn-settings").click(), 1500);
     }
+    if (card === "crash") setTimeout(() => document.getElementById("btn-crash-send").click(), 2500);
     const data = {
       get_config: {
         serverName: "COLDZ", maxPlayers: 48, ownerEmail: "owner@example.com", version: "preview",
@@ -1156,7 +1306,7 @@
       detect_fivem: { installed: q.get("fivem") !== "0" },
       // 0.5.0: &portable=1 — the portable zip (with ?update=1: «download the new version»)
       is_portable: q.get("portable") === "1",
-      get_prefs: { tray: q.get("tray") === "1" },
+      get_prefs: { tray: q.get("tray") === "1", crashAsk: true, crashOn: q.get("crash") != null },
       server_status: q.get("address") === "0"
         ? { online: false, players: 0, maxPlayers: 48, pingMs: null, address: "" }
         : { online: true, players: 12, maxPlayers: 48, pingMs: 34, address: "203.0.113.10:30120", route: null },
@@ -1164,6 +1314,7 @@
       check_update: q.get("update") ? { version: "0.5.0", notes: null } : null
     };
     let previewNick = "";
+    let previewCrashAsk = true;   // 0.5.6: «Не спрашивать» / the settings checkbox
     let previewStorageCancel = false;
     const listeners = {};
     // the route a check chose: a reserve address with ?route=reserve
@@ -1325,6 +1476,38 @@
         await new Promise((r) => setTimeout(r, 600));
         return { path: "C:\\Users\\<user>\\Desktop\\COLDZ-support-20261118-223005.zip", name: "COLDZ-support-20261118-223005.zip", size: 1000 };
       }
+      // 0.5.6: crash reports
+      if (cmd === "crash_pending") {
+        const c = q.get("crash");
+        if (!c) return null;
+        return c === "nohash"
+          ? { id: "4d50eb14-b5df-49fb-a5de-d2ad4b8e54dc.dmp", at: 1794950000, hash: "", key: "", count: 1 }
+          : { id: "4d50eb14-b5df-49fb-a5de-d2ad4b8e54dc.dmp", at: 1794950000, hash: "GTA5_b3889.exe+92B364", key: "hotel-jersey-london", count: 2 };
+      }
+      if (cmd === "crash_preview") {
+        await new Promise((r) => setTimeout(r, 500));
+        return {
+          id: args && args.id, at: 1794950000, hash: "GTA5_b3889.exe+92B364", key: "hotel-jersey-london", limitMb: 20,
+          items: [
+            { key: "crashometry", name: "crashometry.json", size: 435 },
+            { key: "log", name: "CitizenFX_log_tail.txt", size: 27899 },
+            { key: "modules", name: "modules.txt", size: 39450 },
+            { key: "info", name: "report.json", size: 1850 }
+          ],
+          dump: 10779686
+        };
+      }
+      if (cmd === "crash_send") {
+        await new Promise((r) => setTimeout(r, 900));
+        const m = q.get("crashsend");
+        if (m === "fail") throw "too_big";
+        if (m === "queued") return { status: "queued", dump: false, dumpSkipped: "" };
+        if (m === "big") return { status: "sent", dump: false, dumpSkipped: "too_big" };
+        return { status: "sent", dump: !!(args && args.withDump), dumpSkipped: "" };
+      }
+      if (cmd === "crash_answer") { if (args && args.never) previewCrashAsk = false; return null; }
+      if (cmd === "set_crash_ask") { previewCrashAsk = !!(args && args.on); return { tray: q.get("tray") === "1", crashAsk: previewCrashAsk, crashOn: true }; }
+      if (cmd === "get_prefs") return { tray: q.get("tray") === "1", crashAsk: previewCrashAsk, crashOn: q.get("crash") != null };
       if (cmd === "open_external") { console.log("[preview]", cmd); return "ok"; }
       return data[cmd];
     };

@@ -113,6 +113,13 @@
           <button class="address__copy" id="btn-hint-report" data-i18n="hint_report"></button>
           <button class="address__copy" id="btn-hint-hide" data-i18n="hint_hide"></button>
         </p>
+        <!-- 0.5.6: после вылета игры: «Отправить отчёт разработчикам?» (src-tauri/src/crashreport.rs). Строка вместо
+             «FiveM установлен», «Играть» не блокируется; «Отправить» открывает карточку со списком того, что уйдёт -->
+        <p class="fivem__links" id="fivem-crash" hidden>
+          <button class="address__copy" id="btn-crash-send" data-i18n="crash_send"></button>
+          <button class="address__copy" id="btn-crash-no" data-i18n="crash_no"></button>
+          <button class="address__copy" id="btn-crash-never" data-i18n="crash_never"></button>
+        </p>
       </div>
 
       <div class="update" id="update" hidden>
@@ -184,6 +191,11 @@
           <input type="checkbox" id="pref-tray">
           <span data-i18n="pref_tray"></span>
         </label>
+        <!-- 0.5.6: снова спрашивать об отчёте после вылета (после «Не спрашивать»); видно, когда отчёты включены -->
+        <label class="check" id="pref-crash-box" hidden>
+          <input type="checkbox" id="pref-crash">
+          <span data-i18n="pref_crash"></span>
+        </label>
       </div>
       <div class="dialog__actions">
         <button class="btn" id="btn-report-open" data-i18n="report_open"></button>
@@ -208,6 +220,26 @@
       <div class="dialog__actions">
         <button class="btn btn--accent" id="btn-report-make" data-i18n="report_make"></button>
         <button class="btn" id="btn-report-close" data-i18n="close"></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 0.5.6: отчёт о вылете игры разработчикам (src-tauri/src/crashreport.rs): сначала что уйдёт, снимок памяти только
+       отдельной галочкой, отправляется только по «Отправить» -->
+  <div class="dialog" id="crash" hidden>
+    <div class="dialog__card" role="dialog" aria-modal="true" aria-labelledby="crash-title">
+      <h2 class="dialog__title" id="crash-title" data-i18n="crash_title"></h2>
+      <p class="dialog__text" id="crash-text"></p>
+      <ul class="netlist filelist" id="crash-list"></ul>
+      <label class="check" id="crash-dump-box" hidden>
+        <input type="checkbox" id="crash-dump">
+        <span id="crash-dump-text"></span>
+      </label>
+      <p class="dialog__hint" id="crash-note" data-i18n="crash_note"></p>
+      <p class="dialog__hint" id="crash-result" hidden></p>
+      <div class="dialog__actions">
+        <button class="btn btn--accent" id="btn-crash-go" data-i18n="crash_go"></button>
+        <button class="btn" id="btn-crash-close" data-i18n="crash_cancel"></button>
       </div>
     </div>
   </div>
