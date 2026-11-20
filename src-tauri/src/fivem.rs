@@ -708,6 +708,18 @@ pub fn utc_stamp(secs: u64) -> String {
     format!("{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02} UTC", rem / 3600, rem % 3600 / 60, rem % 60)
 }
 
+/// The newer half of a log, from the start of a line. 21.11: the middle byte may fall inside a Cyrillic letter (two
+/// bytes in UTF-8): slicing there panicked, and with `panic = "abort"` the launcher closed at every log line once
+/// net-check.log or fivem-search.log grew over 256 KB. Now the cut moves to the next character first.
+pub fn newer_half(old: &str) -> &str {
+    let mut cut = old.len() / 2;
+    while cut < old.len() && !old.is_char_boundary(cut) {
+        cut += 1;
+    }
+    let start = old.get(cut..).and_then(|s| s.find('\n')).map_or(cut, |i| cut + i + 1);
+    old.get(start..).unwrap_or("")
+}
+
 /// Appends the trace to the log; the file is cut to its newer half once it grows over 256 KB.
 pub fn write_log(path: &Path, title: &str, trace: &[String]) {
     use std::io::Write;
@@ -716,9 +728,7 @@ pub fn write_log(path: &Path, title: &str, trace: &[String]) {
     }
     if std::fs::metadata(path).map(|m| m.len() > 256 * 1024).unwrap_or(false) {
         if let Ok(old) = std::fs::read_to_string(path) {
-            let cut = old.len() / 2;
-            let start = old[cut..].find('\n').map(|i| cut + i + 1).unwrap_or(cut);
-            let _ = std::fs::write(path, &old[start..]);
+            let _ = std::fs::write(path, newer_half(&old));
         }
     }
     let secs = std::time::SystemTime::now()
@@ -747,6 +757,32 @@ mod tests {
     fn touch(p: &Path) {
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
         std::fs::write(p, b"MZ").unwrap();
+    }
+
+    // 21.11: a log over 256 KB is cut to its newer half; the middle byte inside a Cyrillic letter must not panic
+    #[test]
+    fn log_is_cut_at_a_character_and_a_line() {
+        for pad in 0..6 {
+            let text = format!("{}{}", "я".repeat(pad), "строка журнала: связь есть\n".repeat(50));
+            let half = newer_half(&text);
+            assert!(half.len() < text.len() && half.len() >= text.len() / 2 - 60, "{pad}");
+            assert!(half.is_empty() || half.starts_with("строка"), "{pad}: {half:.40}");
+        }
+        assert_eq!(newer_half(""), "");
+        // no line end after the middle: from the middle letter on
+        assert_eq!(newer_half("яяяя"), "яя");
+        assert_eq!(newer_half("яяя"), "я");
+        // the real file: grows over 256 KB of Cyrillic lines and is cut without a panic
+        let d = tmp("logcut");
+        let log = d.join("net-check.log");
+        let line = "проверка связи: сервер COLDZ отвечает, серверы FiveM отвечают".to_string();
+        for _ in 0..2600 {
+            write_log(&log, "заголовок записи", std::slice::from_ref(&line));
+        }
+        let size = std::fs::metadata(&log).unwrap().len();
+        assert!(size < 300 * 1024, "{size}");
+        assert!(std::fs::read_to_string(&log).is_ok());
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     // 16.11.2026: «explorer.exe — Приложение не найдено» — the fivem:// handler led to a FiveM.exe that is gone
