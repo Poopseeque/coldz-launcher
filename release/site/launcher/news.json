@@ -148,9 +148,43 @@
   ],
   "items": [
     {
-      "id": "update-2026-11-20-alpha52",
+      "id": "update-2026-11-20-alpha53",
       "date": "2026-11-20",
       "pinned": true,
+      "title": {
+        "ru": "ALPHA 5.3: машины едут, ворота «Порта», M2 по кругу",
+        "en": "ALPHA 5.3: vehicles move, «Port» gates back, M2 turns all the way",
+        "es": "ALPHA 5.3: los vehículos se mueven, puertas del «Puerto», M2 gira en círculo",
+        "pt-BR": "ALPHA 5.3: veículos andam, portões do «Porto», M2 gira em círculo"
+      },
+      "body": {
+        "ru": "ALPHA 5.3 на сервере.\n\nМашины и вертолёты\n• Починили «замёрзшие» машины и вертолёты, которые не двигались.\n\nБаза «Порт»\n• Ворота Д2 и Д3 вернулись. Замки «шлюз» и «верхние ворота» снова есть: владелец ставит пароли в F7.\n• Ворота любой базы открываются, только если ты рядом: до 15 м и на том же уровне. От нижних ворот верхние не открыть.\n\nПулемёт M2 на Патриоте\n• Установка без пропадания машины, у стрелка есть прицел, турель крутится по кругу.\n• В пулемёт входит 500 патронов (5 лент по 100). Вещи в багажнике при установке не теряются.\n\nКарта\n• Убрали «невидимые плиты» над земляным валом складов боеприпасов (Корц, воронка арены, корабль в Паломино).\n\nИнтерфейс\n• В углу экрана снова ВК, YouTube и Discord. Instagram и TikTok: на экране загрузки, в чате, на сайте и в лаунчере.",
+        "en": "ALPHA 5.3 is live.\n\nVehicles and helicopters\n• Fixed «frozen» cars and helicopters that would not move.\n\n«Port» base\n• Gates D2 and D3 are back. The «airlock» and «upper gates» locks are back too: the owner sets passwords in F7.\n• Gates of any base open only when you are close: within 15 m and on the same level. You cannot open the upper gates from the lower ones.\n\nM2 machine gun on the Patriot\n• Installing it no longer makes the car vanish, the gunner has a crosshair, the turret turns all the way round.\n• The gun holds 500 rounds (5 belts of 100). Trunk items are no longer lost during installation.\n\nMap\n• Removed the «invisible slabs» above the earth walls of ammo depots (Kortz, arena crater, ship at Palomino).\n\nInterface\n• The screen corner shows VK, YouTube and Discord again. Instagram and TikTok: loading screen, chat, website and launcher.",
+        "es": "ALPHA 5.3 ya está en el servidor.\n\nVehículos y helicópteros\n• Arreglamos los coches y helicópteros «congelados» que no se movían.\n\nBase «Puerto»\n• Las puertas D2 y D3 volvieron. Las cerraduras «esclusa» y «puertas superiores» también: el dueño pone contraseñas en F7.\n• Las puertas de cualquier base solo se abren si estás cerca: a menos de 15 m y en el mismo nivel. Desde las puertas de abajo no se abren las de arriba.\n\nAmetralladora M2 en el Patriot\n• Al instalarla el coche ya no desaparece, el tirador tiene mira y la torreta gira en círculo.\n• Le caben 500 balas (5 cintas de 100). Las cosas del maletero ya no se pierden al instalarla.\n\nMapa\n• Quitamos las «placas invisibles» sobre los terraplenes de los depósitos de munición (Kortz, cráter de la arena, barco en Palomino).\n\nInterfaz\n• En la esquina de la pantalla vuelven VK, YouTube y Discord. Instagram y TikTok: pantalla de carga, chat, web y launcher.",
+        "pt-BR": "ALPHA 5.3 está no servidor.\n\nVeículos e helicópteros\n• Corrigimos os carros e helicópteros «congelados» que não se moviam.\n\nBase «Porto»\n• Os portões D2 e D3 voltaram. As fechaduras «eclusa» e «portões de cima» também: o dono define as senhas no F7.\n• Os portões de qualquer base só abrem se você estiver perto: até 15 m e no mesmo nível. Dos portões de baixo não dá para abrir os de cima.\n\nMetralhadora M2 no Patriot\n• Ao instalar, o carro não some mais, o atirador tem mira e a torre gira em círculo.\n• Cabem 500 balas (5 fitas de 100). As coisas do porta-malas não se perdem mais na instalação.\n\nMapa\n• Tiramos as «placas invisíveis» sobre os aterros dos depósitos de munição (Kortz, cratera da arena, navio em Palomino).\n\nInterface\n• No canto da tela voltaram VK, YouTube e Discord. Instagram e TikTok: tela de carregamento, chat, site e launcher."
+      }
+    },
+    {
+      "id": "launcher-0.5.4",
+      "date": "2026-11-20",
+      "pinned": false,
+      "title": {
+        "ru": "Лаунчер 0.5.4",
+        "en": "Launcher 0.5.4",
+        "es": "Launcher 0.5.4",
+        "pt-BR": "Launcher 0.5.4"
+      },
+      "body": {
+        "ru": "Если при первом входе игра вылетала на закачке «Updating game storage», заходите через лаунчер: теперь он сам заранее докачивает файлы игры для сервера, с продолжением после обрыва. Если FiveM покажет окно обновления данных игры, нажмите «Continue» и дождитесь конца. Лаунчер обновится сам.",
+        "en": "If the game crashed on «Updating game storage» on your first join, join through the launcher: it now downloads the game files for the server in advance and resumes after a break. If FiveM shows a game data update window, press «Continue» and wait until it finishes. The launcher updates itself.",
+        "es": "Si el juego se cerraba en «Updating game storage» en tu primera entrada, entra con el launcher: ahora descarga antes los archivos del juego para el servidor y continúa tras un corte. Si FiveM muestra una ventana de actualización de datos del juego, pulsa «Continue» y espera a que termine. El launcher se actualiza solo.",
+        "pt-BR": "Se o jogo fechava em «Updating game storage» na primeira entrada, entre pelo launcher: agora ele baixa antes os arquivos do jogo para o servidor e continua após uma queda. Se o FiveM mostrar uma janela de atualização dos dados do jogo, clique em «Continue» e espere terminar. O launcher se atualiza sozinho."
+      }
+    },
+    {
+      "id": "update-2026-11-20-alpha52",
+      "date": "2026-11-20",
+      "pinned": false,
       "title": {
         "ru": "ALPHA 5.2: мины заново, M2 и листы, двери баз, лента 100, FPS",
         "en": "ALPHA 5.2: mines reset, M2 and plates, base doors, 100-round belts, FPS",
@@ -292,7 +326,7 @@
     {
       "id": "clans-promo-2026-11",
       "date": "2026-11-15",
-      "pinned": true,
+      "pinned": false,
       "title": {
         "ru": "Акция для кланов: база на 2 месяца бесплатно",
         "en": "Clan offer: a free base for 2 months",
@@ -444,5 +478,5 @@
       }
     }
   ],
-  "signedAt": "2026-11-20T04:17:54Z"
+  "signedAt": "2026-11-20T16:05:48Z"
 }
