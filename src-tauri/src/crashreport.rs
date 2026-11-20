@@ -43,10 +43,13 @@ pub const LINE_MAX: usize = 1000;
 pub const LIMIT_SMALL: usize = 2 * 1024 * 1024;
 /// The whole report with the dump.
 pub const LIMIT_DUMP: usize = 20 * 1024 * 1024;
-/// A dump bigger than this is not read at all (FiveM's are 2-20 MB).
-pub const DUMP_READ_MAX: u64 = 512 * 1024 * 1024;
-/// A crash pack bigger than this is not opened.
-pub const PACK_READ_MAX: u64 = 256 * 1024 * 1024;
+/// A dump bigger than this is not read at all (FiveM's are 2-20 MB): it would be read into memory whole, maybe while
+/// GTA takes most of it, and a failed allocation aborts the launcher. Not parsed, cannot be ticked.
+pub const DUMP_READ_MAX: u64 = 64 * 1024 * 1024;
+/// A crash pack bigger than this is not opened (FiveM's are 1-3 MB).
+pub const PACK_READ_MAX: u64 = 64 * 1024 * 1024;
+/// The FiveM log inside a crash pack: unpacked at most this much (only its end is used).
+pub const PACK_LOG_MAX: usize = 32 * 1024 * 1024;
 /// Reports waiting in the outbox at most; older ones go first.
 pub const OUTBOX_MAX: usize = 3;
 pub const OUTBOX_SECS: u64 = 7 * 24 * 3600;
@@ -1293,7 +1296,7 @@ pub fn prepare(crash: &Crash, ctx: &Ctx) -> Prepared {
                 let n = base_name(&e.name).to_ascii_lowercase();
                 n.starts_with("citizenfx_log") && n.ends_with(".log")
             }) {
-                pack_log = f.unpack(e, 64 * 1024 * 1024).map(|raw| {
+                pack_log = f.unpack(e, PACK_LOG_MAX).map(|raw| {
                     let text = String::from_utf8_lossy(&raw).into_owned();
                     let from = text.len().saturating_sub(LOG_READ as usize);
                     let mut from_ok = from;
