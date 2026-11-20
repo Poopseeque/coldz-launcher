@@ -1,6 +1,6 @@
 //! COLDZ launcher backend.
 //!
-//! The launcher never touches FiveM or game files. It only:
+//! The launcher never touches FiveM program files or game files. It only:
 //!   * looks for an installed FiveM (fivem.rs: the path chosen by hand, registry, a running FiveM, usual folders and
 //!     shortcuts; where it looked goes to fivem-search.log next to settings.json),
 //!   * starts the real FiveM client with `fivem://connect/<address>` — not a second time while FiveM is starting or
@@ -13,9 +13,13 @@
 //!     separately (netcheck.rs): a provider that cuts Cfx.re is not the COLDZ server's fault,
 //!   * on «Играть» asks the main server first and, when it does not answer, the reserve routes from news.json
 //!     (route.rs, 0.3.5), and connects through the first that answers,
+//!   * 0.5.4: before starting FiveM sets the game build the server asks for (`/info.json` vars) in FiveM's settings
+//!     file `FiveM.app\CitizenFX.ini` (gamebuild.rs: only the keys FiveM itself writes when it joins), so FiveM
+//!     downloads the build data in its start window, not inside the game,
 //!   * updates itself through the Tauri updater (signed with our own key).
 
 mod fivem;
+mod gamebuild;
 mod hosts;
 mod netcheck;
 mod nick;
@@ -475,6 +479,80 @@ struct PlayResult {
     /// "launched" — FiveM started with the link; "passed" — FiveM was open, the link went into it;
     /// "starting" — FiveM is still starting from the previous "Play", nothing done.
     action: &'static str,
+    /// 0.5.4: the launcher has just set FiveM's game build settings (CitizenFX.ini written or created): FiveM may
+    /// offer to update the game data first (the window says to press «Continue» and wait).
+    build: bool,
+}
+
+// ---------------------------------------------------------------- game build (0.5.4, gamebuild.rs)
+
+/// What `/info.json` of the route asked for, kept between `game_build` and `play`.
+struct BuildAsk {
+    address: String,
+    at: Instant,
+    wanted: Result<gamebuild::Wanted, String>,
+}
+
+fn build_ask() -> &'static std::sync::Mutex<Option<BuildAsk>> {
+    static ASK: OnceLock<std::sync::Mutex<Option<BuildAsk>>> = OnceLock::new();
+    ASK.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+/// An answer this old is not used by «Играть».
+const BUILD_ASK_FOR: Duration = Duration::from_secs(120);
+
+/// «Играть», with the nick (0.5.4): `vars` of `/info.json` of the chosen route (gamebuild.rs). Only reads; `play`
+/// writes CitizenFX.ini right before FiveM starts, when FiveM is not running. True: the server said what it needs.
+#[tauri::command]
+async fn game_build() -> bool {
+    let Some(Target::Direct { host, port }) = route_address().map(|a| parse_address(&a)) else {
+        return false;
+    };
+    let address = format!("{host}:{port}");
+    let wanted = ask_game_build(&address, route::PROBE_TIMEOUT).await;
+    let ok = wanted.is_ok();
+    if let Ok(mut slot) = build_ask().lock() {
+        *slot = Some(BuildAsk { address, at: Instant::now(), wanted });
+    }
+    ok
+}
+
+/// `vars` of `http://<address>/info.json` → what FiveM needs (gamebuild.rs). Err: why nothing is set (for the log).
+async fn ask_game_build(address: &str, wait: Duration) -> Result<gamebuild::Wanted, String> {
+    let resp = http()
+        .get(format!("http://{address}/info.json"))
+        .timeout(wait)
+        .send()
+        .await
+        .map_err(|_| "нет ответа /info.json".to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("/info.json: HTTP {}", resp.status().as_u16()));
+    }
+    let info: serde_json::Value = resp.json().await.map_err(|_| "/info.json не JSON".to_string())?;
+    gamebuild::wanted(&info).map_err(str::to_string)
+}
+
+/// Right before FiveM starts (FiveM not running): CitizenFX.ini as the server asks. True: the file was written.
+/// Anything else (no answer, an error) only goes to fivem-search.log: FiveM starts as before.
+fn sync_game_build(app: &AppHandle, exe: &std::path::Path, address: &str) -> bool {
+    let ask = build_ask().lock().ok().and_then(|mut g| g.take());
+    let ini = gamebuild::ini_path(exe);
+    let (head, outcome) = match ask {
+        Some(a) if a.address == address && a.at.elapsed() < BUILD_ASK_FOR => match a.wanted {
+            Ok(w) => (format!("сервер {address}: {}", w.describe()), Some(gamebuild::sync(&support::app_dir(exe), &w))),
+            Err(why) => (format!("сервер {address}: {why}; файл не тронут, FiveM запускается как раньше"), None),
+        },
+        _ => (format!("сервер {address}: нет свежего ответа /info.json; файл не тронут"), None),
+    };
+    let written = matches!(outcome, Some(gamebuild::Outcome::Written { .. }));
+    if let Some(log) = search_log_path(app) {
+        let mut lines = vec![head, format!("файл: {}", ini.display())];
+        if let Some(o) = &outcome {
+            lines.extend(gamebuild::log_lines(o));
+        }
+        fivem::write_log(&log, "«Играть»: сборка игры для FiveM (CitizenFX.ini)", &lines);
+    }
+    written
 }
 
 /// Starts the real FiveM client and tells it to join our server (running.rs: not a second time).
@@ -489,13 +567,28 @@ fn play(app: AppHandle) -> Result<PlayResult, String> {
     let Some(exe) = find_fivem(&app, "«Играть»", false).map(|f| f.path) else {
         return Err("fivem_missing".into());
     };
-    let action = match running::decide(&running::state_of(&running::processes()), launched_recently()) {
-        running::Decision::Starting => return Ok(PlayResult { action: "starting" }),
+    let decision = running::decide(&running::state_of(&running::processes()), launched_recently());
+    // 0.5.4: FiveM runs (open, starting, stuck): CitizenFX.ini is FiveM's now (it writes the file itself), not touched
+    if decision != running::Decision::Launch {
+        if let Some(log) = search_log_path(&app) {
+            fivem::write_log(&log, "«Играть»: FiveM запущен, CitizenFX.ini не трогаем", &[]);
+        }
+        if let Ok(mut g) = build_ask().lock() {
+            *g = None;
+        }
+    }
+    let mut build = false;
+    let action = match decision {
+        running::Decision::Starting => return Ok(PlayResult { action: "starting", build }),
         running::Decision::Stuck => return Err("fivem_stuck".into()),
         running::Decision::PassLink => "passed",
         running::Decision::Launch => {
             if let Ok(mut g) = last_launch().lock() {
                 *g = Some(Instant::now());
+            }
+            // 0.5.4: the game build the server asks for, before FiveM reads the file (gamebuild.rs)
+            if let Target::Direct { host, port } = parse_address(&address) {
+                build = sync_game_build(&app, &exe, &format!("{host}:{port}"));
             }
             "launched"
         }
@@ -518,7 +611,7 @@ fn play(app: AppHandle) -> Result<PlayResult, String> {
         let windir = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".into());
         let explorer = std::path::Path::new(&windir).join("explorer.exe");
         if handler_ok && std::process::Command::new(&explorer).arg(&url).spawn().is_ok() {
-            return Ok(PlayResult { action });
+            return Ok(PlayResult { action, build });
         }
     }
     // Fallback: `FiveM.exe "<link>"` directly (works on FiveM builds without the parent check).
@@ -535,12 +628,12 @@ fn play(app: AppHandle) -> Result<PlayResult, String> {
         cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
     }
     match cmd.spawn() {
-        Ok(_) => Ok(PlayResult { action }),
+        Ok(_) => Ok(PlayResult { action, build }),
         // Fall back to the registered fivem:// link handler.
         Err(_) => app
             .opener()
             .open_url(&url, None::<&str>)
-            .map(|_| PlayResult { action })
+            .map(|_| PlayResult { action, build })
             .map_err(|_| "launch_failed".into()),
     }
 }
@@ -1759,6 +1852,7 @@ pub fn run() {
             detect_fivem,
             pick_fivem,
             choose_route,
+            game_build,
             play,
             close_fivem,
             get_nick,
@@ -1937,6 +2031,54 @@ mod tests {
             String::from_utf8_lossy(&req).to_string()
         });
         (nick::endpoint("127.0.0.1", addr.port()), task)
+    }
+
+    // 0.5.4: what the server asks FiveM for comes from /info.json of the route (gamebuild.rs)
+    #[test]
+    fn game_build_from_the_server() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        rt.block_on(async {
+            let port = |url: &str| url.trim_start_matches("http://").split('/').next().unwrap().to_string();
+            let info = r#"{"vars":{"sv_enforceGameBuild":"3258","sv_defaultGameBuild":"3889","sv_pureLevel":"1","sv_poolSizesIncrease":"{\"InteriorProxy\":450,\"PortalInst\":100}"}}"#;
+            let (url, server) = fake_server(200, info).await;
+            let w = ask_game_build(&port(&url), Duration::from_secs(3)).await.unwrap();
+            assert!(server.await.unwrap().starts_with("GET /info.json HTTP/1.1"));
+            assert_eq!(w.describe(), "сборка 3258, exe 3889, pure 1, пулы {\"InteriorProxy\":450,\"PortalInst\":100}");
+
+            let (url, _s) = fake_server(404, "{}").await;
+            assert_eq!(ask_game_build(&port(&url), Duration::from_secs(3)).await.unwrap_err(), "/info.json: HTTP 404");
+            let (url, _s) = fake_server(200, "<html>").await;
+            assert_eq!(ask_game_build(&port(&url), Duration::from_secs(3)).await.unwrap_err(), "/info.json не JSON");
+            let (url, _s) = fake_server(200, r#"{"vars":{"sv_projectName":"COLDZ"}}"#).await;
+            assert_eq!(ask_game_build(&port(&url), Duration::from_secs(3)).await.unwrap_err(), "нет sv_enforceGameBuild");
+            // nobody there: an error within the wait
+            let free = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap().local_addr().unwrap();
+            let t = Instant::now();
+            assert_eq!(ask_game_build(&free.to_string(), Duration::from_secs(2)).await.unwrap_err(), "нет ответа /info.json");
+            assert!(t.elapsed() < Duration::from_secs(3));
+        });
+    }
+
+    // 0.5.4: the «Continue» line on 4 languages, neutral (docs/ПРАВИЛА.md: no long dashes, nothing about ways around
+    // blocks), and the window asks for the game build before «play»
+    #[test]
+    fn game_build_line_in_the_window() {
+        let i18n = include_str!("../../ui/i18n.js");
+        let lines: Vec<&str> = i18n.lines().filter(|l| l.trim_start().starts_with("launched_build:")).collect();
+        assert_eq!(lines.len(), 4, "ru, en, es, pt-BR");
+        for l in &lines {
+            assert!(l.contains("Continue") && l.contains("FiveM"), "{l}");
+            let low = l.to_lowercase();
+            for bad in ["—", "vpn", "ускорит", "accelerat", "acelerad", "обход"] {
+                assert!(!low.contains(bad), "{bad} in {l}");
+            }
+        }
+        let app = include_str!("../../ui/app.js");
+        let ask = app.find("invoke(\"game_build\")").expect("game_build asked");
+        let play = app.find("await invoke(\"play\")").expect("play");
+        assert!(ask < play);
+        assert!(app.contains("\"launched_build\""));
     }
 
     #[test]

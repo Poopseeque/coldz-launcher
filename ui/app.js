@@ -647,8 +647,11 @@
       renderAddress();
     }
     // 1) The nick to our server. It said no — show why under the field and do not start FiveM.
+    // 0.5.4: at the same time the game build the server needs (/info.json vars, src-tauri/src/gamebuild.rs); «play»
+    // then sets it in FiveM's CitizenFX.ini before FiveM starts (only while FiveM is not running).
     $("nick").value = checked.nick;
-    const [nickOk, netRes] = await Promise.all([fromNet ? true : sendNick(checked.nick), netCheck]);
+    const buildAsk = invoke("game_build").catch(() => false);
+    const [nickOk, netRes] = await Promise.all([fromNet ? true : sendNick(checked.nick), netCheck, buildAsk]);
     renderNick();
     if (!nickOk) {
       release(0);
@@ -672,6 +675,11 @@
       if (action === "starting") {
         holdMs = 1500;
         showFivemMessage("fivem_starting", 15000);
+      } else if (action === "launched" && res && res.build) {
+        // 0.5.4: the game build was just set: FiveM may download the game data first («Continue»). A little longer
+        // before the window goes away, so the line can be read.
+        showFivemMessage("launched_build", 60000);
+        setTimeout(minimizeWindow, 8000);
       } else {
         showFivemMessage(action === "passed" ? "launched_passed" : "launched", 10000);
         setTimeout(minimizeWindow, 2500);
@@ -1042,8 +1050,11 @@
       if (cmd === "play") {
         const run = q.get("run");
         if (run === "stuck") throw "fivem_stuck";
-        return { action: run === "open" ? "passed" : run === "starting" ? "starting" : "launched" };
+        // 0.5.4: &build=1 — the launcher has just set the game build (the «Continue» line)
+        const action = run === "open" ? "passed" : run === "starting" ? "starting" : "launched";
+        return { action, build: action === "launched" && q.get("build") === "1" };
       }
+      if (cmd === "game_build") return true;
       if (cmd === "close_fivem") return q.get("close") === "fail" ? [2, 1] : [3, 0];
       if (cmd === "choose_route") {
         await new Promise((r) => setTimeout(r, 300));

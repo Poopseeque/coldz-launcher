@@ -8,6 +8,9 @@ window.I18N = {
     play: "Играть",
     launching: "Запускаем FiveM…",
     launched: "FiveM запускается и подключится к COLDZ. Окно лаунчера можно закрыть.",
+    // 0.5.4: the launcher has just set the game build COLDZ needs (gamebuild.rs): FiveM may download the game data
+    // in its start window first. «Continue» is FiveM's own (English) button.
+    launched_build: "FiveM запускается. Если FiveM предложит обновить данные игры, нажмите «Continue» и дождитесь конца загрузки: первый вход может занять несколько минут.",
     launch_failed: "Не удалось запустить FiveM. Откройте FiveM, нажмите F8 и введите: connect {a}",
     no_address: "Адрес сервера ещё не опубликован. Загляните в новости чуть позже.",
     checking: "Проверка…",
@@ -167,6 +170,7 @@ window.I18N = {
     play: "Play",
     launching: "Starting FiveM…",
     launched: "FiveM is starting and will connect to COLDZ. You can close the launcher.",
+    launched_build: "FiveM is starting. If FiveM offers to update the game data, press “Continue” and wait for the download to finish: the first join may take a few minutes.",
     launch_failed: "Could not start FiveM. Open FiveM, press F8 and type: connect {a}",
     no_address: "The server address is not published yet. Check the news a bit later.",
     checking: "Checking…",
@@ -319,6 +323,7 @@ window.I18N = {
     play: "Jugar",
     launching: "Iniciando FiveM…",
     launched: "FiveM se está iniciando y se conectará a COLDZ. Puedes cerrar el lanzador.",
+    launched_build: "FiveM se está iniciando. Si FiveM ofrece actualizar los datos del juego, pulsa «Continue» y espera a que termine la descarga: la primera entrada puede tardar unos minutos.",
     launch_failed: "No se pudo iniciar FiveM. Abre FiveM, pulsa F8 y escribe: connect {a}",
     no_address: "La dirección del servidor aún no está publicada. Mira las noticias un poco más tarde.",
     checking: "Comprobando…",
@@ -471,6 +476,7 @@ window.I18N = {
     play: "Jogar",
     launching: "Abrindo o FiveM…",
     launched: "O FiveM está abrindo e vai conectar ao COLDZ. Você pode fechar o launcher.",
+    launched_build: "O FiveM está abrindo. Se o FiveM oferecer atualizar os dados do jogo, clique em «Continue» e espere o download terminar: a primeira entrada pode levar alguns minutos.",
     launch_failed: "Não foi possível abrir o FiveM. Abra o FiveM, aperte F8 e digite: connect {a}",
     no_address: "O endereço do servidor ainda não foi publicado. Veja as notícias um pouco mais tarde.",
     checking: "Verificando…",
