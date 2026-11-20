@@ -101,6 +101,13 @@
           <button class="address__copy" id="btn-net-retry" data-i18n="net_retry"></button>
           <button class="address__copy" id="btn-net-details" data-i18n="net_details"></button>
         </p>
+        <!-- 0.5.4: докачка файла игры для сервера до запуска FiveM (src-tauri/src/storage.rs): полоска, «Отменить»,
+             после остановки «Играть без докачки» (FiveM скачает файл сам в своём окне) -->
+        <div class="storage-bar" id="storage-bar" hidden><i id="storage-bar-fill"></i></div>
+        <div class="fivem__actions" id="fivem-storage" hidden>
+          <button class="btn" id="btn-storage-cancel" data-i18n="storage_cancel"></button>
+          <button class="btn" id="btn-storage-skip" data-i18n="storage_skip"></button>
+        </div>
         <!-- 0.5.0: подсказка после вылета FiveM (src-tauri/src/support.rs): одна строка вместо «FiveM установлен» -->
         <p class="fivem__links" id="fivem-hint" hidden>
           <button class="address__copy" id="btn-hint-report" data-i18n="hint_report"></button>

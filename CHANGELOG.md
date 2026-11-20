@@ -3,6 +3,22 @@
 Новые версии сверху. Первая строка записи: текст для `npm run release -- -Notes "…"` (он попадает в `latest.json`
 и в описание выпуска на GitHub), ниже подробности. Порядок выпуска: README, раздел 5, и `docs/ПРАВИЛА.md`.
 
+## 0.5.4
+
+- Перед «Играть» лаунчер ставит FiveM сборку игры сервера и сам докачивает файлы игры для сервера (с продолжением после обрыва): они больше не качаются внутри игры.
+- EN: Before Play the launcher sets FiveM to the server's game build and downloads the game files for the server itself (resuming after a break): they are no longer downloaded inside the game.
+- ES: Antes de Jugar, el lanzador pone en FiveM la versión del juego del servidor y descarga él mismo los archivos del juego para el servidor (continúa tras un corte): ya no se descargan dentro del juego.
+- PT-BR: Antes de Jogar, o launcher define no FiveM a versão do jogo do servidor e baixa ele mesmo os arquivos do jogo para o servidor (continua após uma queda): eles não são mais baixados dentro do jogo.
+- Подробнее: `vars` из `/info.json` выбранного маршрута (`sv_enforceGameBuild`, `sv_defaultGameBuild`, `sv_pureLevel`,
+  `sv_poolSizesIncrease`) → `SavedBuildNumber`, `DefaultBuild`, `PureLevel`, `PoolSizesIncrease` в
+  `FiveM.app\CitizenFX.ini`, только если FiveM не запущен и строки отличаются; остальные строки (`IVPath`) и кодировка не
+  меняются; ошибки только в `fivem-search.log`. Если файл записан, под «Играть» строка: нажать «Continue» в окне
+  обновления данных FiveM и дождаться загрузки (README 7м).
+- Файл игры для сервера: `override+update+update.rpf_abf3a580…` (1 423 288 320 байт, `update.rpf` сборки 3258 из
+  таблицы FiveM `GameCache.cpp`, адрес CDN Cfx.re) в `FiveM.app\data\game-storage`, если сборка сервера младше exe и
+  файла нет; часть `.coldz-part` продолжается по `Range`, SHA-1 перед переименованием, прогресс и «Отменить» под
+  «Играть», «Играть без докачки» (README 7н). Таблица: `launcher.config.json → gameStorage`, `news.json` главнее.
+
 ## 0.5.3
 
 - Убран график онлайна; кнопки Instagram и TikTok по языку; новости ALPHA 5.2.

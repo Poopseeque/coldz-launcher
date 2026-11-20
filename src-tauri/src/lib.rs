@@ -1,6 +1,6 @@
 //! COLDZ launcher backend.
 //!
-//! The launcher never touches FiveM or game files. It only:
+//! The launcher never touches FiveM program files or game files. It only:
 //!   * looks for an installed FiveM (fivem.rs: the path chosen by hand, registry, a running FiveM, usual folders and
 //!     shortcuts; where it looked goes to fivem-search.log next to settings.json),
 //!   * starts the real FiveM client with `fivem://connect/<address>` — not a second time while FiveM is starting or
@@ -13,9 +13,15 @@
 //!     separately (netcheck.rs): a provider that cuts Cfx.re is not the COLDZ server's fault,
 //!   * on «Играть» asks the main server first and, when it does not answer, the reserve routes from news.json
 //!     (route.rs, 0.3.5), and connects through the first that answers,
+//!   * 0.5.4: before starting FiveM sets the game build the server asks for (`/info.json` vars) in FiveM's settings
+//!     file `FiveM.app\CitizenFX.ini` (gamebuild.rs: only the keys FiveM itself writes when it joins), so FiveM
+//!     downloads the build data in its start window, not inside the game,
+//!   * 0.5.4: when the server's build needs FiveM's override `update.rpf` (storage.rs), downloads it into FiveM's cache
+//!     before FiveM starts, from FiveM's own address, continuing after a break, checked by SHA-1,
 //!   * updates itself through the Tauri updater (signed with our own key).
 
 mod fivem;
+mod gamebuild;
 mod hosts;
 mod netcheck;
 mod nick;
@@ -23,6 +29,7 @@ mod route;
 mod running;
 mod signin;
 mod startup;
+mod storage;
 mod support;
 mod tunnel;
 mod window;
@@ -94,6 +101,33 @@ struct Config {
     news_pubkey: String,
     #[serde(default)]
     links: Vec<Link>,
+    /// 0.5.4 (storage.rs): FiveM's table of override files (build → sha1, address, size). `gameStorage` in news.json
+    /// wins.
+    #[serde(default)]
+    game_storage: Vec<storage::Entry>,
+    /// 0.5.4 (gamebuild.rs): `{"preset": false}` — the launcher does not touch CitizenFX.ini (starts FiveM as 0.5.3).
+    /// `gameBuild.preset` in news.json wins.
+    #[serde(default)]
+    game_build: GameBuildSwitch,
+}
+
+/// 0.5.4: the remote switch for writing CitizenFX.ini (gamebuild.rs).
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct GameBuildSwitch {
+    /// Set the server's game build in CitizenFX.ini before FiveM starts. Missing: on.
+    #[serde(default = "preset_default")]
+    preset: bool,
+}
+
+fn preset_default() -> bool {
+    true
+}
+
+impl Default for GameBuildSwitch {
+    fn default() -> Self {
+        GameBuildSwitch { preset: true }
+    }
 }
 
 fn config() -> &'static Config {
@@ -183,6 +217,34 @@ fn remote_signin() -> &'static RwLock<Option<signin::Setup>> {
     S.get_or_init(|| RwLock::new(None))
 }
 
+/// 0.5.4: `gameStorage` from news.json. `None` = the key is missing: the built-in table.
+fn remote_storage() -> &'static RwLock<Option<Vec<storage::Entry>>> {
+    static S: OnceLock<RwLock<Option<Vec<storage::Entry>>>> = OnceLock::new();
+    S.get_or_init(|| RwLock::new(None))
+}
+
+/// 0.5.4: `gameBuild.preset` from news.json. `None` = no such key (or not true/false): launcher.config.json decides.
+fn remote_preset() -> &'static RwLock<Option<bool>> {
+    static S: OnceLock<RwLock<Option<bool>>> = OnceLock::new();
+    S.get_or_init(|| RwLock::new(None))
+}
+
+/// `gameBuild.preset` of a news file: Some only for a real true/false.
+fn preset_of_feed(v: &serde_json::Value) -> Option<bool> {
+    v.get("gameBuild").and_then(|g| g.get("preset")).and_then(|p| p.as_bool())
+}
+
+/// Does the launcher write the game build to CitizenFX.ini (gamebuild.rs)? news.json wins over launcher.config.json.
+fn preset_on(remote: Option<bool>, built_in: &GameBuildSwitch) -> bool {
+    remote.unwrap_or(built_in.preset)
+}
+
+/// FiveM's override files in use (storage.rs `clean`): from news.json, or the built-in ones.
+fn effective_storage() -> Vec<storage::Entry> {
+    let remote = remote_storage().read().ok().and_then(|g| g.clone());
+    storage::clean(remote.as_ref().unwrap_or(&config().game_storage))
+}
+
 /// The sign-in hosts and tunnels in use (signin.rs `clean`): from news.json, or the built-in ones.
 fn effective_signin() -> signin::Setup {
     let remote = remote_signin().read().ok().and_then(|g| g.clone());
@@ -215,6 +277,18 @@ fn apply_feed(v: &serde_json::Value) {
         .and_then(|s| serde_json::from_value::<signin::Setup>(s.clone()).ok());
     if let Ok(mut slot) = remote_signin().write() {
         *slot = signin;
+    }
+    // 0.5.4: `gameStorage` (a list): missing or not a list = the built-in table
+    let table = v
+        .get("gameStorage")
+        .filter(|t| t.is_array())
+        .and_then(|t| serde_json::from_value::<Vec<storage::Entry>>(t.clone()).ok());
+    if let Ok(mut slot) = remote_storage().write() {
+        *slot = table;
+    }
+    // 0.5.4: `gameBuild: {"preset": false}` — CitizenFX.ini is not touched; missing or not true/false = built-in
+    if let Ok(mut slot) = remote_preset().write() {
+        *slot = preset_of_feed(v);
     }
 }
 
@@ -475,6 +549,227 @@ struct PlayResult {
     /// "launched" — FiveM started with the link; "passed" — FiveM was open, the link went into it;
     /// "starting" — FiveM is still starting from the previous "Play", nothing done.
     action: &'static str,
+    /// 0.5.4: the launcher has just set FiveM's game build settings (CitizenFX.ini written or created): FiveM may
+    /// offer to update the game data first (the window says to press «Continue» and wait).
+    build: bool,
+}
+
+// ---------------------------------------------------------------- game build (0.5.4, gamebuild.rs)
+
+/// What `/info.json` of the route asked for, kept between `game_build` and `play`.
+struct BuildAsk {
+    address: String,
+    at: Instant,
+    wanted: Result<gamebuild::Wanted, String>,
+    /// 0.5.4 (storage.rs): the override file FiveM will need and does not have yet, and the FiveM.app it goes to.
+    storage: Option<(storage::Entry, PathBuf)>,
+}
+
+/// What «Играть» learns from `game_build`.
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct GameBuild {
+    /// The server said what build it needs.
+    ok: bool,
+    /// 0.5.4: a game file to download before FiveM starts: all bytes and bytes already there (a part from last time).
+    storage: Option<StorageNeed>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StorageNeed {
+    total: u64,
+    have: u64,
+}
+
+fn build_ask() -> &'static std::sync::Mutex<Option<BuildAsk>> {
+    static ASK: OnceLock<std::sync::Mutex<Option<BuildAsk>>> = OnceLock::new();
+    ASK.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+/// An answer this old is not used by «Играть».
+const BUILD_ASK_FOR: Duration = Duration::from_secs(120);
+
+/// «Играть», with the nick (0.5.4): `vars` of `/info.json` of the chosen route (gamebuild.rs). Only reads; `play`
+/// writes CitizenFX.ini right before FiveM starts, when FiveM is not running. Also says whether FiveM will need a game
+/// file it does not have yet (storage.rs): the window then downloads it first (`storage_download`).
+#[tauri::command]
+async fn game_build(app: AppHandle) -> GameBuild {
+    let Some(Target::Direct { host, port }) = route_address().map(|a| parse_address(&a)) else {
+        return GameBuild::default();
+    };
+    let address = format!("{host}:{port}");
+    let wanted = ask_game_build(&address, route::PROBE_TIMEOUT).await;
+    let ok = wanted.is_ok();
+    let storage = match &wanted {
+        Ok(w) => {
+            let w = w.clone();
+            tauri::async_runtime::spawn_blocking(move || storage_needed(&app, &w)).await.ok().flatten()
+        }
+        Err(_) => None,
+    };
+    let need = storage.as_ref().and_then(|(e, dir)| {
+        storage::missing(&storage::paths(dir, e), e).map(|have| StorageNeed { total: e.size, have })
+    });
+    if let Ok(mut slot) = build_ask().lock() {
+        *slot = Some(BuildAsk { address, at: Instant::now(), wanted, storage });
+    }
+    GameBuild { ok, storage: need }
+}
+
+/// 0.5.4 (storage.rs): the override file FiveM will need for this server and does not have, when FiveM is installed,
+/// not running, and its FiveM.exe knows the same file. Anything unusual goes to fivem-search.log.
+fn storage_needed(app: &AppHandle, w: &gamebuild::Wanted) -> Option<(storage::Entry, PathBuf)> {
+    let exe = fivem_exe_quiet(app)?;
+    if running::state_of(&running::processes()).count > 0 {
+        return None;
+    }
+    let app_dir = support::app_dir(&exe);
+    if !app_dir.is_dir() {
+        return None;
+    }
+    let ini = std::fs::read(gamebuild::ini_path(&exe)).unwrap_or_default();
+    let e = storage::needed(w, &ini, &effective_storage())?;
+    storage::missing(&storage::paths(&app_dir, &e), &e)?;
+    let knows = std::fs::read(&exe).map(|b| storage::fivem_knows(&b, &e)).unwrap_or(false);
+    if !knows {
+        if let Some(log) = search_log_path(app) {
+            let line = format!("{} ({} байт): в {} нет этого sha1 и адреса, не качаем", e.cache_name(), e.size, exe.display());
+            fivem::write_log(&log, "«Играть»: файл игры для сервера (game-storage)", &[line]);
+        }
+        return None;
+    }
+    Some((e, app_dir))
+}
+
+/// The download running now (one at a time): its «Отменить».
+fn storage_cancel_slot() -> &'static std::sync::Mutex<Option<std::sync::Arc<storage::Cancel>>> {
+    static S: OnceLock<std::sync::Mutex<Option<std::sync::Arc<storage::Cancel>>>> = OnceLock::new();
+    S.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+/// For big files: no overall time limit (a stalled answer is caught by storage.rs), the same User-Agent.
+fn download_client() -> reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(10))
+                .user_agent(concat!("COLDZ-Launcher/", env!("CARGO_PKG_VERSION")))
+                .build()
+                .expect("download client")
+        })
+        .clone()
+}
+
+/// «Играть», 0.5.4: downloads (or continues) the game file `game_build` found missing into FiveM's cache
+/// (storage.rs). Progress: event `storage-progress` ({done, total, phase}). Err: "cancelled" | "network" | "remote" |
+/// "bad" | "space" | "disk" | "busy" | "none" (nothing to download any more).
+#[tauri::command]
+async fn storage_download(app: AppHandle) -> Result<(), String> {
+    let job = build_ask()
+        .lock()
+        .ok()
+        .and_then(|g| g.as_ref().filter(|a| a.at.elapsed() < BUILD_ASK_FOR).and_then(|a| a.storage.clone()));
+    let Some((entry, app_dir)) = job else {
+        return Err("none".into());
+    };
+    let cancel = std::sync::Arc::new(storage::Cancel::default());
+    {
+        let mut slot = storage_cancel_slot().lock().map_err(|_| "busy".to_string())?;
+        if slot.is_some() {
+            return Err("busy".into());
+        }
+        *slot = Some(cancel.clone());
+    }
+    let paths = storage::paths(&app_dir, &entry);
+    let before = storage::missing(&paths, &entry).unwrap_or(entry.size);
+    let free = support::drive_of(&app_dir).map(|d| d.free);
+    let started = Instant::now();
+    let handle = app.clone();
+    let result = storage::run(download_client(), app_dir, entry.clone(), free, cancel, move |p| {
+        let _ = handle.emit("storage-progress", p);
+    })
+    .await;
+    if let Ok(mut slot) = storage_cancel_slot().lock() {
+        *slot = None;
+    }
+    // the download may take minutes: «Играть» right after it still uses this answer of the server
+    if result.is_ok() {
+        if let Ok(mut g) = build_ask().lock() {
+            if let Some(a) = g.as_mut() {
+                a.at = Instant::now();
+                a.storage = None;
+            }
+        }
+    }
+    if let Some(log) = search_log_path(&app) {
+        let now = storage::missing(&paths, &entry).unwrap_or(entry.size);
+        let secs = started.elapsed().as_secs_f64().max(0.001);
+        let got = now.saturating_sub(before);
+        let mut lines = vec![
+            format!("{} ← {}", paths.done.display(), entry.url),
+            format!(
+                "было {} из {} байт, стало {now}; {:.0} с, {:.1} МБ/с",
+                before,
+                entry.size,
+                secs,
+                got as f64 / secs / 1_000_000.0
+            ),
+        ];
+        lines.push(match &result {
+            Ok(()) => "готово: SHA-1 совпал, файл на месте".to_string(),
+            Err(f) => format!("остановлено: {}", f.describe()),
+        });
+        fivem::write_log(&log, "«Играть»: файл игры для сервера (game-storage)", &lines);
+    }
+    result.map_err(|f| f.key().to_string())
+}
+
+/// «Отменить» under the download: the part stays, «Играть» continues it.
+#[tauri::command]
+fn storage_cancel() {
+    if let Some(c) = storage_cancel_slot().lock().ok().and_then(|g| g.clone()) {
+        c.cancel();
+    }
+}
+
+/// `vars` of `http://<address>/info.json` → what FiveM needs (gamebuild.rs). Err: why nothing is set (for the log).
+async fn ask_game_build(address: &str, wait: Duration) -> Result<gamebuild::Wanted, String> {
+    let resp = http()
+        .get(format!("http://{address}/info.json"))
+        .timeout(wait)
+        .send()
+        .await
+        .map_err(|_| "нет ответа /info.json".to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("/info.json: HTTP {}", resp.status().as_u16()));
+    }
+    let info: serde_json::Value = resp.json().await.map_err(|_| "/info.json не JSON".to_string())?;
+    gamebuild::wanted(&info).map_err(str::to_string)
+}
+
+/// Right before FiveM starts (FiveM not running): CitizenFX.ini as the server asks. True: the file was written.
+/// Anything else (no answer, an error) only goes to fivem-search.log: FiveM starts as before.
+fn sync_game_build(app: &AppHandle, exe: &std::path::Path, address: &str) -> bool {
+    let ask = build_ask().lock().ok().and_then(|mut g| g.take());
+    let ini = gamebuild::ini_path(exe);
+    let (head, outcome) = match ask {
+        Some(a) if a.address == address && a.at.elapsed() < BUILD_ASK_FOR => match a.wanted {
+            Ok(w) => (format!("сервер {address}: {}", w.describe()), Some(gamebuild::sync(&support::app_dir(exe), &w))),
+            Err(why) => (format!("сервер {address}: {why}; файл не тронут, FiveM запускается как раньше"), None),
+        },
+        _ => (format!("сервер {address}: нет свежего ответа /info.json; файл не тронут"), None),
+    };
+    let written = matches!(outcome, Some(gamebuild::Outcome::Written { .. }));
+    if let Some(log) = search_log_path(app) {
+        let mut lines = vec![head, format!("файл: {}", ini.display())];
+        if let Some(o) = &outcome {
+            lines.extend(gamebuild::log_lines(o));
+        }
+        fivem::write_log(&log, "«Играть»: сборка игры для FiveM (CitizenFX.ini)", &lines);
+    }
+    written
 }
 
 /// Starts the real FiveM client and tells it to join our server (running.rs: not a second time).
@@ -489,13 +784,37 @@ fn play(app: AppHandle) -> Result<PlayResult, String> {
     let Some(exe) = find_fivem(&app, "«Играть»", false).map(|f| f.path) else {
         return Err("fivem_missing".into());
     };
-    let action = match running::decide(&running::state_of(&running::processes()), launched_recently()) {
-        running::Decision::Starting => return Ok(PlayResult { action: "starting" }),
+    let decision = running::decide(&running::state_of(&running::processes()), launched_recently());
+    // 0.5.4: FiveM runs (open, starting, stuck): CitizenFX.ini is FiveM's now (it writes the file itself), not touched
+    if decision != running::Decision::Launch {
+        if let Some(log) = search_log_path(&app) {
+            fivem::write_log(&log, "«Играть»: FiveM запущен, CitizenFX.ini не трогаем", &[]);
+        }
+        if let Ok(mut g) = build_ask().lock() {
+            *g = None;
+        }
+    }
+    let mut build = false;
+    let action = match decision {
+        running::Decision::Starting => return Ok(PlayResult { action: "starting", build }),
         running::Decision::Stuck => return Err("fivem_stuck".into()),
         running::Decision::PassLink => "passed",
         running::Decision::Launch => {
             if let Ok(mut g) = last_launch().lock() {
                 *g = Some(Instant::now());
+            }
+            // 0.5.4: the game build the server asks for, before FiveM reads the file (gamebuild.rs); switched off by
+            // `gameBuild.preset: false` (news.json, else launcher.config.json): as 0.5.3
+            let remote = remote_preset().read().ok().and_then(|g| *g);
+            if !preset_on(remote, &config().game_build) {
+                if let Some(log) = search_log_path(&app) {
+                    fivem::write_log(&log, "«Играть»: запись CitizenFX.ini выключена (gameBuild.preset = false)", &[]);
+                }
+                if let Ok(mut g) = build_ask().lock() {
+                    *g = None;
+                }
+            } else if let Target::Direct { host, port } = parse_address(&address) {
+                build = sync_game_build(&app, &exe, &format!("{host}:{port}"));
             }
             "launched"
         }
@@ -518,7 +837,7 @@ fn play(app: AppHandle) -> Result<PlayResult, String> {
         let windir = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".into());
         let explorer = std::path::Path::new(&windir).join("explorer.exe");
         if handler_ok && std::process::Command::new(&explorer).arg(&url).spawn().is_ok() {
-            return Ok(PlayResult { action });
+            return Ok(PlayResult { action, build });
         }
     }
     // Fallback: `FiveM.exe "<link>"` directly (works on FiveM builds without the parent check).
@@ -535,12 +854,12 @@ fn play(app: AppHandle) -> Result<PlayResult, String> {
         cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
     }
     match cmd.spawn() {
-        Ok(_) => Ok(PlayResult { action }),
+        Ok(_) => Ok(PlayResult { action, build }),
         // Fall back to the registered fivem:// link handler.
         Err(_) => app
             .opener()
             .open_url(&url, None::<&str>)
-            .map(|_| PlayResult { action })
+            .map(|_| PlayResult { action, build })
             .map_err(|_| "launch_failed".into()),
     }
 }
@@ -1759,6 +2078,9 @@ pub fn run() {
             detect_fivem,
             pick_fivem,
             choose_route,
+            game_build,
+            storage_download,
+            storage_cancel,
             play,
             close_fivem,
             get_nick,
@@ -1891,7 +2213,13 @@ mod tests {
         assert_eq!(route_address().as_deref(), Some("177.3.198.34:30120"));
         assert_eq!(valid_route().map(|r| r.kind), Some("reserve"));
         *current_route().write().unwrap() = None;
+        // 0.5.4: gameBuild.preset from news.json is kept, a feed without it brings launcher.config.json back
+        apply_feed(&serde_json::json!({ "items": [], "gameBuild": { "preset": false } }));
+        assert_eq!(*remote_preset().read().unwrap(), Some(false));
+        assert!(!preset_on(*remote_preset().read().unwrap(), &config().game_build));
         apply_feed(&serde_json::json!({ "items": [] }));
+        assert_eq!(*remote_preset().read().unwrap(), None);
+        assert!(preset_on(*remote_preset().read().unwrap(), &config().game_build));
     }
 
     #[test]
@@ -1937,6 +2265,69 @@ mod tests {
             String::from_utf8_lossy(&req).to_string()
         });
         (nick::endpoint("127.0.0.1", addr.port()), task)
+    }
+
+    // 0.5.4: what the server asks FiveM for comes from /info.json of the route (gamebuild.rs)
+    #[test]
+    fn game_build_from_the_server() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        rt.block_on(async {
+            let port = |url: &str| url.trim_start_matches("http://").split('/').next().unwrap().to_string();
+            let info = r#"{"vars":{"sv_enforceGameBuild":"3258","sv_defaultGameBuild":"3889","sv_pureLevel":"1","sv_poolSizesIncrease":"{\"InteriorProxy\":450,\"PortalInst\":100}"}}"#;
+            let (url, server) = fake_server(200, info).await;
+            let w = ask_game_build(&port(&url), Duration::from_secs(3)).await.unwrap();
+            assert!(server.await.unwrap().starts_with("GET /info.json HTTP/1.1"));
+            assert_eq!(w.describe(), "сборка 3258, exe 3889, pure 1, пулы {\"InteriorProxy\":450,\"PortalInst\":100}");
+
+            let (url, _s) = fake_server(404, "{}").await;
+            assert_eq!(ask_game_build(&port(&url), Duration::from_secs(3)).await.unwrap_err(), "/info.json: HTTP 404");
+            let (url, _s) = fake_server(200, "<html>").await;
+            assert_eq!(ask_game_build(&port(&url), Duration::from_secs(3)).await.unwrap_err(), "/info.json не JSON");
+            let (url, _s) = fake_server(200, r#"{"vars":{"sv_projectName":"COLDZ"}}"#).await;
+            assert_eq!(ask_game_build(&port(&url), Duration::from_secs(3)).await.unwrap_err(), "нет sv_enforceGameBuild");
+            // nobody there: an error within the wait
+            let free = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap().local_addr().unwrap();
+            let t = Instant::now();
+            assert_eq!(ask_game_build(&free.to_string(), Duration::from_secs(2)).await.unwrap_err(), "нет ответа /info.json");
+            assert!(t.elapsed() < Duration::from_secs(3));
+        });
+    }
+
+    // 0.5.4: the «Continue» line on 4 languages, neutral (docs/ПРАВИЛА.md: no long dashes, nothing about ways around
+    // blocks), and the window asks for the game build before «play»
+    #[test]
+    fn game_build_line_in_the_window() {
+        let i18n = include_str!("../../ui/i18n.js");
+        let lines: Vec<&str> = i18n.lines().filter(|l| l.trim_start().starts_with("launched_build:")).collect();
+        assert_eq!(lines.len(), 4, "ru, en, es, pt-BR");
+        for l in &lines {
+            assert!(l.contains("Continue") && l.contains("FiveM"), "{l}");
+            let low = l.to_lowercase();
+            for bad in ["—", "vpn", "ускорит", "accelerat", "acelerad", "обход"] {
+                assert!(!low.contains(bad), "{bad} in {l}");
+            }
+        }
+        let app = include_str!("../../ui/app.js");
+        let ask = app.find("invoke(\"game_build\")").expect("game_build asked");
+        let download = app.find("await invoke(\"storage_download\")").expect("storage_download");
+        let play = app.find("await invoke(\"play\")").expect("play");
+        assert!(ask < play && download < play);
+        assert!(app.contains("\"launched_build\""));
+        // 0.5.4 (storage.rs): the download texts on 4 languages, every error key has its line
+        for key in ["progress", "checking", "button", "cancel", "skip", "paused", "network", "remote", "bad", "space", "disk"] {
+            let lines: Vec<&str> = i18n.lines().filter(|l| l.trim_start().starts_with(&format!("storage_{key}:"))).collect();
+            assert_eq!(lines.len(), 4, "storage_{key}");
+            for l in &lines {
+                let low = l.to_lowercase();
+                for bad in ["—", "vpn", "ускорит", "accelerat", "acelerad", "обход"] {
+                    assert!(!low.contains(bad), "{bad} in {l}");
+                }
+            }
+        }
+        for key in ["cancelled", "network", "remote", "bad", "space", "disk"] {
+            assert!(app.contains(&format!("{key}: \"storage_")), "{key}");
+        }
     }
 
     #[test]
@@ -2136,6 +2527,32 @@ mod tests {
         // langs reaches the window (get_config serializes Link)
         let v = serde_json::to_value(&c.links).unwrap();
         assert!(v.as_array().unwrap().iter().any(|l| l["langs"] == serde_json::json!(["en"])));
+    }
+
+    // 0.5.4: the remote switch for CitizenFX.ini: news.json `gameBuild.preset` wins, a missing or empty key = the
+    // built-in launcher.config.json
+    #[test]
+    fn game_build_switch() {
+        use serde_json::json;
+        let on = GameBuildSwitch { preset: true };
+        let off = GameBuildSwitch { preset: false };
+        // built in: on by default, and the shipped launcher.config.json says on
+        assert!(config().game_build.preset);
+        let cfg: serde_json::Value = serde_json::from_str(CONFIG_JSON).unwrap();
+        assert_eq!(cfg["gameBuild"], json!({ "preset": true }));
+        assert_eq!(serde_json::from_value::<GameBuildSwitch>(json!({})).unwrap(), on);
+        // news.json says
+        assert_eq!(preset_of_feed(&json!({ "gameBuild": { "preset": false } })), Some(false));
+        assert_eq!(preset_of_feed(&json!({ "gameBuild": { "preset": true } })), Some(true));
+        assert!(!preset_on(Some(false), &on));
+        assert!(preset_on(Some(true), &off));
+        // no key, an empty object, a null, a string: launcher.config.json decides
+        for feed in [json!({}), json!({ "gameBuild": {} }), json!({ "gameBuild": null }), json!({ "gameBuild": { "preset": "no" } }), json!({ "gameBuild": [] })] {
+            assert_eq!(preset_of_feed(&feed), None, "{feed}");
+            assert!(preset_on(preset_of_feed(&feed), &on));
+            assert!(!preset_on(preset_of_feed(&feed), &off));
+        }
+        // apply_feed keeps it: news_address_overrides_built_in (the same globals, one test at a time)
     }
 
     #[test]
