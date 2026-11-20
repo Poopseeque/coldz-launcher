@@ -452,6 +452,13 @@ impl Scrub {
     }
 }
 
+/// The lower-case copy keeps every letter at the same byte offset, so an offset found in it can cut the text. 21.11:
+/// equal total lengths were not enough («ẞ» gets shorter, «İ» longer: a text with both had offsets inside a letter,
+/// a panic, and the launcher is built with `panic = "abort"`).
+fn same_layout(text: &str, lower: &str) -> bool {
+    lower.len() == text.len() && text.chars().all(|c| c.to_lowercase().map(char::len_utf8).sum::<usize>() == c.len_utf8())
+}
+
 /// Case-insensitive replace of `needle` where it stands as a whole word (not inside a longer name).
 fn replace_word(text: &str, needle: &str, with: &str) -> String {
     if needle.is_empty() {
@@ -460,7 +467,7 @@ fn replace_word(text: &str, needle: &str, with: &str) -> String {
     let lower = text.to_lowercase();
     let n = needle.to_lowercase();
     // to_lowercase may change lengths for some letters: then only the exact spelling is replaced
-    if lower.len() != text.len() {
+    if !same_layout(text, &lower) {
         return text.replace(needle, with);
     }
     let word = |c: Option<char>| c.map_or(false, |c| c.is_alphanumeric() || c == '_');
@@ -589,7 +596,7 @@ pub fn scrub(text: &str, s: &Scrub) -> String {
             let to = format!("{sep}Users{esc}<user>");
             // case-insensitive for the path form too
             let lower = t.to_lowercase();
-            if lower.len() == t.len() {
+            if same_layout(&t, &lower) {
                 let f = from.to_lowercase();
                 let mut out = String::new();
                 let mut i = 0;
@@ -926,6 +933,19 @@ mod tests {
         assert!(out.contains("local 127.0.0.1"), "{out}");
         assert!(out.contains("build 1.0.3258.0"), "{out}");
         assert!(!out.to_lowercase().contains("\\ivan\\"), "{out}");
+    }
+
+    // 21.11: letters whose lower case is shorter («ẞ») and longer («İ») in one text: offsets stay inside letters
+    // only with the old «equal total length» check; now no panic, the exact spelling is still hidden
+    #[test]
+    fn scrub_survives_letters_that_change_length() {
+        let s = Scrub { user: vec!["Ivan".into()], pc: vec!["DESKTOP-ABC".into()], keep_ips: vec![] };
+        for text in ["ẞIvanİ C:\\Users\\Ivan\\x", "İẞ C:\\Users\\Ivan\\FiveM DESKTOP-ABC", "ẞ\\Users\\Ivan İ", "İ", "ẞ"] {
+            let out = scrub(text, &s);
+            assert!(!out.contains("\\Users\\Ivan\\") && !out.contains("DESKTOP-ABC"), "{text} -> {out}");
+        }
+        assert!(same_layout("Привет, Иван", &"Привет, Иван".to_lowercase()));
+        assert!(!same_layout("ẞİ", &"ẞİ".to_lowercase()));
     }
 
     #[test]
