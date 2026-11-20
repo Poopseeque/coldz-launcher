@@ -165,6 +165,23 @@
       }
     },
     {
+      "id": "launcher-0.5.2",
+      "date": "2026-11-20",
+      "pinned": false,
+      "title": {
+        "ru": "Лаунчер 0.5.2",
+        "en": "Launcher 0.5.2",
+        "es": "Lanzador 0.5.2",
+        "pt-BR": "Launcher 0.5.2"
+      },
+      "body": {
+        "ru": "Лаунчер больше не закрывается молча при запуске. Если на компьютере нет компонента Windows «WebView2», лаунчер покажет окно со ссылкой на его установку. При другой ошибке запуска появится окно с текстом ошибки: скопируйте его (Ctrl+C) и пришлите нам в группу. Лаунчер обновится сам. Если у вас лаунчер не открывается совсем, скачайте новый на coldz.vip.",
+        "en": "The launcher no longer closes silently at start. If the Windows component «WebView2» is missing, the launcher shows a window with a link to install it. Any other start error is shown in a window: copy it (Ctrl+C) and send it to us. The launcher updates itself. If your launcher does not open at all, download the new one at coldz.vip.",
+        "es": "El lanzador ya no se cierra sin aviso al iniciarse. Si falta el componente de Windows «WebView2», el lanzador muestra una ventana con un enlace para instalarlo. Cualquier otro error al iniciar aparece en una ventana: cópialo (Ctrl+C) y envíanoslo. El lanzador se actualiza solo. Si tu lanzador no abre nada, descarga el nuevo en coldz.vip.",
+        "pt-BR": "O launcher não fecha mais em silêncio ao iniciar. Se faltar o componente do Windows «WebView2», o launcher mostra uma janela com um link para instalá-lo. Qualquer outro erro ao iniciar aparece numa janela: copie (Ctrl+C) e mande para nós. O launcher se atualiza sozinho. Se o seu launcher não abre de jeito nenhum, baixe o novo em coldz.vip."
+      }
+    },
+    {
       "id": "launcher-2026-11-18-0-4-0",
       "date": "2026-11-18",
       "pinned": false,
@@ -370,5 +387,5 @@
       }
     }
   ],
-  "signedAt": "2026-11-19T22:06:23Z"
+  "signedAt": "2026-11-20T01:24:27Z"
 }
