@@ -148,9 +148,26 @@
   ],
   "items": [
     {
-      "id": "update-2026-11-20-alpha53",
+      "id": "update-2026-11-20-alpha54",
       "date": "2026-11-20",
       "pinned": true,
+      "title": {
+        "ru": "ALPHA 5.4: ручник, магазины 13 стволов, РПК и M2 в событиях",
+        "en": "ALPHA 5.4: handbrake, 13 gun magazines, RPK and M2 in events",
+        "es": "ALPHA 5.4: freno de mano, cargadores de 13 armas, RPK y M2 en eventos",
+        "pt-BR": "ALPHA 5.4: freio de mão, carregadores de 13 armas, RPK e M2 em eventos"
+      },
+      "body": {
+        "ru": "ALPHA 5.4 на сервере.\n\nМашины\n• Пустая машина снова встаёт на ручник и не укатывается. Без заморозки: сел — поехал. Вертолётов, самолётов и лодок это не касается.\n\nОружие\n• У 13 стволов в магазине ровно столько патронов, сколько написано: P2000 17, PT92 15, ТТ 8, Микро-Узи 30, Скорпион 30, Томпсон 50, Сайга-12 10, AA-12 14, AUG A3 42, M39 EMR 20, BFG-50A 10, M107 10, Striker-12 18 (и увеличенные магазины).\n• У CZ 550, СВД, Винчестера и ВСС свой звук выстрела.\n\nЛут\n• В аирдропе и вертолёте бывают РПК-74 и патроны 5,45, в аирдропе ещё ленты .50 и редко M2. В БМП и хаммере — M2 и ленты .50.\n• У сильных зомби падают патроны 5,45.\n• Маскхалаты «Клякса» и «Город» лежат везде, где обычный маскхалат.\n\nКровь\n• Кровотечение отнимает не больше 600 крови за раз: успеешь перевязаться.",
+        "en": "ALPHA 5.4 is live.\n\nVehicles\n• An empty car puts on the handbrake again and does not roll away. No freezing: get in and drive. Helicopters, planes and boats are not affected.\n\nWeapons\n• 13 guns now hold exactly the rounds written for them: P2000 17, PT92 15, TT 8, Micro-Uzi 30, Scorpion 30, Thompson 50, Saiga-12 10, AA-12 14, AUG A3 42, M39 EMR 20, BFG-50A 10, M107 10, Striker-12 18 (and extended magazines).\n• CZ 550, SVD, Winchester and VSS have their own shot sounds.\n\nLoot\n• Airdrops and helicopters can have the RPK-74 and 5.45 ammo; airdrops also .50 belts and rarely the M2. APCs and Humvees have the M2 and .50 belts.\n• Strong zombies drop 5.45 ammo.\n• «Blot» and «City» camo suits lie wherever the plain camo suit does.\n\nBlood\n• Bleeding takes no more than 600 blood at a time: you have time to bandage.",
+        "es": "ALPHA 5.4 ya está en el servidor.\n\nVehículos\n• El coche vacío vuelve a poner el freno de mano y no se va rodando. Sin congelarse: subes y conduces. No afecta a helicópteros, aviones ni barcos.\n\nArmas\n• 13 armas tienen en el cargador justo las balas indicadas: P2000 17, PT92 15, TT 8, Micro-Uzi 30, Scorpion 30, Thompson 50, Saiga-12 10, AA-12 14, AUG A3 42, M39 EMR 20, BFG-50A 10, M107 10, Striker-12 18 (y cargadores ampliados).\n• CZ 550, SVD, Winchester y VSS tienen su propio sonido de disparo.\n\nBotín\n• En los lanzamientos aéreos y helicópteros puede haber RPK-74 y munición 5,45; en los lanzamientos también cintas .50 y rara vez la M2. En BMP y Humvee, la M2 y cintas .50.\n• Los zombis fuertes sueltan munición 5,45.\n• Los camuflajes «Mancha» y «Ciudad» aparecen donde el camuflaje normal.\n\nSangre\n• El sangrado quita como máximo 600 de sangre cada vez: te da tiempo a vendarte.",
+        "pt-BR": "ALPHA 5.4 está no servidor.\n\nVeículos\n• O carro vazio volta a puxar o freio de mão e não sai rolando. Sem congelar: entrou, dirigiu. Helicópteros, aviões e barcos não são afetados.\n\nArmas\n• 13 armas agora têm no carregador exatamente as balas indicadas: P2000 17, PT92 15, TT 8, Micro-Uzi 30, Scorpion 30, Thompson 50, Saiga-12 10, AA-12 14, AUG A3 42, M39 EMR 20, BFG-50A 10, M107 10, Striker-12 18 (e carregadores estendidos).\n• CZ 550, SVD, Winchester e VSS têm som de tiro próprio.\n\nLoot\n• Nos lançamentos aéreos e helicópteros pode haver RPK-74 e munição 5,45; nos lançamentos também fitas .50 e raramente a M2. Em BMP e Humvee, a M2 e fitas .50.\n• Zumbis fortes derrubam munição 5,45.\n• As camuflagens «Mancha» e «Cidade» aparecem onde a camuflagem comum aparece.\n\nSangue\n• O sangramento tira no máximo 600 de sangue por vez: dá tempo de enfaixar."
+      }
+    },
+    {
+      "id": "update-2026-11-20-alpha53",
+      "date": "2026-11-20",
+      "pinned": false,
       "title": {
         "ru": "ALPHA 5.3: машины едут, ворота «Порта», M2 по кругу",
         "en": "ALPHA 5.3: vehicles move, «Port» gates back, M2 turns all the way",
@@ -478,5 +495,5 @@
       }
     }
   ],
-  "signedAt": "2026-11-20T16:05:48Z"
+  "signedAt": "2026-11-20T16:39:44Z"
 }
