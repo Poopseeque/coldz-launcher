@@ -25,16 +25,7 @@
           "www.rockstargames.com",
           "cdn.sc.rockstargames.com",
           "graph.rockstargames.com",
-          "rsg.sc"
-        ]
-      },
-      {
-        "id": "cfx",
-        "check": [
-          "https://lambda.fivem.net/",
-          "https://policy-live.fivem.net/"
-        ],
-        "hosts": [
+          "rsg.sc",
           "lambda.fivem.net",
           "policy-live.fivem.net",
           "cnl-hb-live.fivem.net",
@@ -563,5 +554,5 @@
       }
     }
   ],
-  "signedAt": "2026-11-23T17:37:50Z"
+  "signedAt": "2026-11-23T21:06:07Z"
 }

@@ -25,16 +25,7 @@
           "www.rockstargames.com",
           "cdn.sc.rockstargames.com",
           "graph.rockstargames.com",
-          "rsg.sc"
-        ]
-      },
-      {
-        "id": "cfx",
-        "check": [
-          "https://lambda.fivem.net/",
-          "https://policy-live.fivem.net/"
-        ],
-        "hosts": [
+          "rsg.sc",
           "lambda.fivem.net",
           "policy-live.fivem.net",
           "cnl-hb-live.fivem.net",
@@ -148,9 +139,26 @@
   ],
   "items": [
     {
+      "id": "update-2026-11-23-alpha57",
+      "date": "2026-11-23",
+      "pinned": true,
+      "title": {
+        "ru": "ALPHA 5.7: зубы зомби, целые зомби, карта без дыр",
+        "en": "ALPHA 5.7: zombie teeth, whole zombies, map without holes",
+        "es": "ALPHA 5.7: dientes de zombi, zombis enteros, mapa sin huecos",
+        "pt-BR": "ALPHA 5.7: dentes de zumbi, zumbis inteiros, mapa sem buracos"
+      },
+      "body": {
+        "ru": "ALPHA 5.7 на сервере.\n\nЗомби\n• Зомби без головы и без туловища: нашли причину в файлах моделей и починили.\n• Зомби больше не застывает от ударов кулаком и битой: убитый падает, и его можно обыскать.\n• Новая валюта: зубы зомби. Лежат в каждом убитом зомби: у обычных 1–3, у врачей до 4, у полиции до 5, у военных до 6. Забирает тот, кто обыскал. На что тратить, расскажем позже.\n\nКарта\n• Больше не должно быть объектов, сквозь которые можно пройти: палатки, ангары, завалы в центре и стены домов теперь держат.\n• В плавильню больше не провалиться через крышу.\n• Закрыта щель в лаборатории воронки арены.\n• Магазины одежды разграблены, как 24/7 и Ammu-Nation.\n• Убрано больше тысячи старых объектов карты. Новым игрокам качать примерно на 140 МБ меньше.\n\nБазы\n• Лифт: машина не должна проваливаться сквозь платформу, урона на ходу лифта нет.\n• Техника на базах: если машина или вертолёт рядом есть, но не видны, сервер вернёт их сам.\n• Провалившаяся под карту машина с базы возвращается на свою стоянку.\n\nМашины\n• Патриот: при установке и снятии пулемёта машина больше не теряет груз, листы и людей внутри.\n• Снегоход готов, места на карте появятся позже.\n\nИнтерфейс\n• Броня и шлем на исходе больше не мигают: один цвет, убывает только полоска.\n• Лекарства, еда и вода снова применяются на себя когда угодно. Защита от траты впустую осталась при лечении другого через G.\n• Номер игрока в Tab совпадает с местом в списке.\n• Запись клипов: /rec начать и сохранить, /recdel не сохранять. «Редактор клипов» в главном меню.",
+        "en": "ALPHA 5.7 is live.\n\nZombies\n• Zombies without a head or torso: the cause was found in the model files and fixed.\n• Zombies no longer freeze when punched or hit with a bat: a killed one falls and can be searched.\n• New currency: zombie teeth. Every killed zombie has them: 1–3 in ordinary ones, up to 4 in medics, up to 5 in police, up to 6 in soldiers. Whoever searches the body takes them. We will say later what to spend them on.\n\nMap\n• There should be no more objects you can walk through: tents, hangars, rubble downtown and house walls now hold.\n• You can no longer fall into the smelter through its roof.\n• The gap in the arena crater lab is closed.\n• Clothing stores are looted, like 24/7 and Ammu-Nation.\n• More than a thousand old map objects removed. New players download about 140 MB less.\n\nBases\n• Lift: a car should no longer fall through the platform, and there is no damage while the lift moves.\n• Vehicles on bases: if a car or helicopter is nearby but not visible, the server brings it back by itself.\n• A car that fell under the map from a base returns to its parking spot.\n\nVehicles\n• Patriot: mounting or removing the machine gun no longer loses cargo, plates or passengers.\n• The snowmobile is ready; its places on the map will appear later.\n\nInterface\n• Armor and helmet no longer blink when low: one color, only the bar shrinks.\n• You can use medicine, food and water on yourself at any time again. The protection from waste stays when treating others with G.\n• A player's number in Tab matches their place in the list.\n• Clip recording: /rec to start and save, /recdel to discard. \"Clip editor\" is in the main menu.",
+        "es": "ALPHA 5.7 ya está en el servidor.\n\nZombis\n• Zombis sin cabeza o sin torso: la causa estaba en los archivos de los modelos y se arregló.\n• Los zombis ya no se quedan congelados al golpearlos: el muerto cae y se puede registrar.\n• Nueva moneda: dientes de zombi. Los lleva cada zombi muerto: 1–3 los normales, hasta 4 los médicos, hasta 5 los policías, hasta 6 los militares. Se los queda quien registra el cuerpo. Más adelante diremos en qué gastarlos.\n\nMapa\n• Ya no debería haber objetos que se atraviesen: tiendas, hangares, escombros del centro y paredes de casas ahora aguantan.\n• Ya no se cae dentro de la fundición por el techo.\n• Cerrada la rendija del laboratorio del cráter de la arena.\n• Las tiendas de ropa están saqueadas, como 24/7 y Ammu-Nation.\n• Quitados más de mil objetos viejos del mapa. Los nuevos jugadores descargan unos 140 MB menos.\n\nBases\n• Ascensor: el coche no debería caer por la plataforma y no hay daño mientras se mueve.\n• Vehículos en las bases: si un coche o helicóptero está cerca pero no se ve, el servidor lo recupera solo.\n• Un coche de la base que cayó bajo el mapa vuelve a su plaza.\n\nVehículos\n• Patriot: al montar o quitar la ametralladora ya no se pierden carga, placas ni ocupantes.\n• La moto de nieve está lista; sus lugares en el mapa llegarán después.\n\nInterfaz\n• El chaleco y el casco ya no parpadean: un solo color, solo baja la barra.\n• Puedes volver a usar medicinas, comida y agua en ti cuando quieras. La protección contra el gasto queda al curar a otros con G.\n• El número del jugador en Tab coincide con su lugar en la lista.\n• Grabar clips: /rec empezar y guardar, /recdel descartar. «Editor de clips» en el menú principal.",
+        "pt-BR": "ALPHA 5.7 está no servidor.\n\nZumbis\n• Zumbis sem cabeça ou sem tronco: a causa estava nos arquivos dos modelos e foi corrigida.\n• Zumbis não ficam mais parados ao levar socos ou golpes de taco: o morto cai e pode ser revistado.\n• Nova moeda: dentes de zumbi. Todo zumbi morto tem: 1–3 nos comuns, até 4 nos médicos, até 5 nos policiais, até 6 nos militares. Fica com quem revista o corpo. Mais adiante diremos em que gastar.\n\nMapa\n• Não deve mais haver objetos que se atravessam: tendas, hangares, escombros do centro e paredes de casas agora seguram.\n• Não dá mais para cair dentro da fundição pelo telhado.\n• Fechada a fresta do laboratório da cratera da arena.\n• As lojas de roupa estão saqueadas, como 24/7 e Ammu-Nation.\n• Removidos mais de mil objetos antigos do mapa. Novos jogadores baixam cerca de 140 MB a menos.\n\nBases\n• Elevador: o carro não deve cair pela plataforma e não há dano enquanto ele se move.\n• Veículos nas bases: se um carro ou helicóptero está perto mas não aparece, o servidor o recupera sozinho.\n• Um carro da base que caiu sob o mapa volta para a vaga.\n\nVeículos\n• Patriot: montar ou tirar a metralhadora não perde mais carga, chapas nem ocupantes.\n• O snowmobile está pronto; os lugares no mapa virão depois.\n\nInterface\n• Colete e capacete não piscam mais quando estão baixos: uma cor, só a barra diminui.\n• Você pode voltar a usar remédios, comida e água em si quando quiser. A proteção contra desperdício fica ao tratar outros com G.\n• O número do jogador no Tab coincide com o lugar na lista.\n• Gravar clipes: /rec para iniciar e salvar, /recdel para descartar. «Editor de clipes» no menu principal."
+      }
+    },
+    {
       "id": "update-2026-11-21-alpha561",
       "date": "2026-11-21",
-      "pinned": true,
+      "pinned": false,
       "title": {
         "ru": "ALPHA 5.6.1: автобег, ключи для машин, кровь на экране",
         "en": "ALPHA 5.6.1: autorun, car wrenches, blood on screen",
@@ -546,5 +554,5 @@
       }
     }
   ],
-  "signedAt": "2026-11-21T20:40:22Z"
+  "signedAt": "2026-11-23T21:06:07Z"
 }
