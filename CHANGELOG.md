@@ -3,6 +3,25 @@
 Новые версии сверху. Первая строка записи: текст для `npm run release -- -Notes "…"` (он попадает в `latest.json`
 и в описание выпуска на GitHub), ниже подробности. Порядок выпуска: README, раздел 5, и `docs/ПРАВИЛА.md`.
 
+## 0.5.7
+
+- «Играть» теперь всё решает сама: если вход в FiveM у провайдера не отвечает, лаунчер без вопросов подключает через сервер COLDZ. Windows спросит разрешение один раз: нажмите «Да».
+- EN: Play now decides everything by itself: if the FiveM sign-in does not answer at your provider, the launcher connects through the COLDZ server without any questions. Windows asks for permission once: press "Yes".
+- ES: Jugar ahora lo decide todo solo: si el inicio de sesión de FiveM no responde con tu proveedor, el lanzador conecta por el servidor COLDZ sin preguntas. Windows pide permiso una vez: pulsa «Sí».
+- PT-BR: Jogar agora decide tudo sozinho: se o login do FiveM não responde no seu provedor, o launcher conecta pelo servidor COLDZ sem perguntas. O Windows pede permissão uma vez: clique em «Sim».
+- Подробнее: план «Играть» считает проверка связи (`netcheck.rs plan`, README 7б): вход через сервер COLDZ включается сам, ход
+  по шагам под кнопкой; отказ и ошибки — карточка с одним текстом, «Попробовать ещё раз» и «Играть без этого». Карточка
+  «Связь с серверами»: одна главная кнопка и «Закрыть», список под «Подробнее». Имена: «Вход через сервер COLDZ», «запасной
+  сервер COLDZ», «Вход в FiveM»; слова «маршрут», «релей», Rockstar из текстов окна убраны.
+- Одно разрешение Windows вместо двух: повышенная копия ждёт закрытия лаунчера и сама убирает строки из hosts, и при
+  закрытии, и при сбое, и при выключении Windows (`hosts.rs guard`, README 7г). Файл hosts меняется побайтно.
+- VPN или прокси на ПК: если адреса в разных странах отвечают за 3 мс и быстрее, проверке лаунчер не верит и просит
+  выключить (`proxyCheck`, README 7б), пометка в `net-check.log`.
+- Через сервер COLDZ идут все группы адресов (вход и службы FiveM), а не только упавшая; группа считается упавшей, если не
+  прошёл любой её адрес, обрыв большого ответа на 16 КБ тоже (Александр 23.11, README 7г).
+- Пересылка входа: долгие тихие соединения не теряются на роутерах, ответ после конца отправки доходит целиком, длинный
+  хендшейк принимается, при молчании релея берётся следующий (`tunnel.rs`, README 7г).
+
 ## 0.5.4
 
 - Перед «Играть» лаунчер ставит FiveM сборку игры сервера и сам докачивает файлы игры для сервера (с продолжением после обрыва): они больше не качаются внутри игры.

@@ -272,6 +272,10 @@ button, select { font: inherit; color: inherit; }
 .fivem[data-state="net"] .fivem__text { color: #ffd7d9; }
 .fivem[data-state="net"] .fivem__text::before { content: "✗ "; color: var(--blood-hi); }
 .fivem[data-state="netcheck"] .fivem__text { color: var(--muted); }
+/* 0.5.7: «Играть» connects through the COLDZ server by itself: the step it is on */
+.fivem[data-state="via"] .fivem__text { color: #ffe3a3; }
+.fivem[data-state="via"] .fivem__text::before { content: "● "; color: var(--amber); }
+.fivem[data-state="via"][data-step] .fivem__text::before { animation: blink .7s infinite alternate; }
 .fivem__links { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 5px 0 0; }
 .fivem__links .address__copy:disabled { color: var(--faint); cursor: default; text-decoration: none; }
 .fivem__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
@@ -332,6 +336,11 @@ button, select { font: inherit; color: inherit; }
 .dialog__hint { margin: 12px 0 0; line-height: 1.5; color: var(--muted); }
 .dialog__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
 .dialog__actions .btn { padding: 7px 14px; }
+/* 0.5.7: one main button, small links, the list under «Подробнее» */
+#net .btn--accent { padding: 9px 22px; }
+.dialog__links { margin-top: 12px; }
+#net-more .fivem__links { margin-top: 8px; }
+#net-more .dialog__hint { font-size: 12px; }
 
 .netlist { list-style: none; margin: 14px 0 0; padding: 10px 0 0; border-top: 1px solid var(--line); display: grid; gap: 5px; }
 .netlist li {

@@ -12,7 +12,8 @@
         "check": [
           "https://scui.rockstargames.com/",
           "https://rgl-prod.ros.rockstargames.com/",
-          "https://prod.ros.rockstargames.com/"
+          "https://prod.ros.rockstargames.com/",
+          "https://gamedownloads.rockstargames.com/public/title_metadata.json"
         ],
         "hosts": [
           "scui.rockstargames.com",
@@ -20,9 +21,13 @@
           "socialclub.rockstargames.com",
           "rgl-prod.ros.rockstargames.com",
           "prod.ros.rockstargames.com",
+          "auth-prod.ros.rockstargames.com",
           "conductor-prod.ros.rockstargames.com",
           "rgl.rockstargames.com",
           "prod.cloud.rockstargames.com",
+          "gamedownloads.rockstargames.com",
+          "scapi.rockstargames.com",
+          "overlay.rockstargames.com",
           "www.rockstargames.com",
           "cdn.sc.rockstargames.com",
           "graph.rockstargames.com",
@@ -33,14 +38,17 @@
         "id": "cfx",
         "check": [
           "https://lambda.fivem.net/",
-          "https://policy-live.fivem.net/"
+          "https://policy-live.fivem.net/",
+          "https://runtime.fivem.net/doc/natives.json"
         ],
         "hosts": [
           "lambda.fivem.net",
           "policy-live.fivem.net",
           "cnl-hb-live.fivem.net",
           "runtime.fivem.net",
-          "gss.cfx-services.net"
+          "gss.cfx-services.net",
+          "frontend.cfx-services.net",
+          "static.cfx.re"
         ]
       }
     ],
@@ -54,6 +62,15 @@
         "sha256": "aa1bbb5283c14d9278d5704cfb91ab92a80318d0befe31b2898f3515926ebb85"
       }
     ]
+  },
+  "proxyCheck": {
+    "maxMs": 3,
+    "minPlaces": 2,
+    "places": {
+      "92.118.11.28:28683": "ru",
+      "177.3.198.34:30120": "pl",
+      "46.247.40.34:30120": "kz"
+    }
   },
   "gameBuild": {
     "preset": true

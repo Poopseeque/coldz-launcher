@@ -20,8 +20,13 @@
 //! 0.3.5: the reserve routes to our server (route.rs) are asked too. The main server is down but a reserve route
 //! answers: the server counts as reachable (no «Сервер COLDZ сейчас недоступен» card), the window shows the reserve
 //! route line.
+//!
+//! 0.5.7: the check itself says what «Играть» does next (`plan`), the window asks nothing: FiveM at once, through the
+//! COLDZ server (signin.rs), or a card with one text and one button. And when our addresses in different countries
+//! answer within 3 ms, which no cable can do, this PC answers for them (a VPN or proxy that takes every connection
+//! itself): the results are then not believed (`answered_here`).
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
@@ -109,7 +114,83 @@ pub struct Report {
     pub signin: Option<SigninReport>,
     /// 0.5.0: the ping (TCP connect, best of 3) to the main server and to every reserve route, for the card.
     pub pings: Vec<RoutePing>,
+    /// 0.5.7: addresses in different countries answer at once: this PC answers for them (`answered_here`).
+    pub proxy: bool,
+    /// 0.5.7: what «Играть» does with this report (`plan`).
+    pub plan: &'static str,
     pub ms: u32,
+}
+
+/// 0.5.7: `proxyCheck` in launcher.config.json (a `proxyCheck` in news.json wins): how fast is too fast, and where our
+/// addresses are.
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ProxyCheck {
+    /// An answer within this many milliseconds is too fast for another country. 0 = the check is off.
+    pub max_ms: u32,
+    /// How many different places must answer that fast (at least 2: one near server can really be that near).
+    pub min_places: usize,
+    /// `host:port` → place («ru», «pl», «kz»). An address that is not here does not count.
+    pub places: std::collections::BTreeMap<String, String>,
+}
+
+/// The addresses that answered too fast, when they are in enough different places; empty: nothing unusual.
+pub fn answered_here<'a>(pings: &'a [RoutePing], cfg: &ProxyCheck) -> Vec<&'a RoutePing> {
+    // a typo in news.json must not accuse everybody: 10 ms is about 1000 km there and back
+    let limit = cfg.max_ms.min(10);
+    if limit == 0 {
+        return Vec::new();
+    }
+    let fast: Vec<(&RoutePing, &String)> = pings
+        .iter()
+        .filter(|p| p.ms.is_some_and(|ms| ms <= limit))
+        .filter_map(|p| cfg.places.get(&p.address).map(|place| (p, place)))
+        .collect();
+    let mut places: Vec<&String> = fast.iter().map(|(_, place)| *place).collect();
+    places.sort();
+    places.dedup();
+    if places.len() >= cfg.min_places.max(2) {
+        fast.into_iter().map(|(p, _)| p).collect()
+    } else {
+        Vec::new()
+    }
+}
+
+/// 0.5.7: what «Играть» does (Alexander 23.11: no questions in the window):
+/// * "go" — FiveM at once (also when only the main server is silent and a reserve route answers: route.rs picks it);
+/// * "via" — the sign-in hosts do not answer, a COLDZ relay does: the sign-in through the COLDZ server, then FiveM;
+/// * a card with one text and one button: "offline" (nothing answers), "server" (COLDZ is down: nothing on the player's
+///   side helps), "noroute" (the sign-in does not answer and neither does a relay), "via_bad" (the sign-in through the
+///   COLDZ server is on and a whole group is silent through it: one slow address is no reason to stop, there is nothing
+///   better to offer), "cfx" (FiveM's own services are cut), "proxy" (something is wrong, and this
+///   PC answers for our servers: the results mean nothing until that is switched off).
+pub fn plan(r: &Report) -> &'static str {
+    let signin = r.signin.as_ref();
+    let cut = signin.is_some_and(|s| s.blocked);
+    let relay = signin.and_then(|s| s.tunnel.as_ref()).is_some_and(|t| t.ok);
+    let server_down = r.server == Some(false) && r.reserve != Some(true);
+    let plan = if r.verdict == "offline" {
+        "offline"
+    } else if server_down && (if cut { relay } else { !r.blocking }) {
+        "server"
+    } else if cut {
+        if relay {
+            "via"
+        } else {
+            "noroute"
+        }
+    } else if signin.is_some_and(|s| s.active && s.groups.iter().any(|g| g.silent())) {
+        "via_bad"
+    } else if r.blocking {
+        "cfx"
+    } else {
+        "go"
+    };
+    if r.proxy && plan != "go" {
+        "proxy"
+    } else {
+        plan
+    }
 }
 
 /// 0.5.0: one line of the ping list: "main" or "reserve" (number = place in the reserve list, from 1).
@@ -123,16 +204,42 @@ pub struct RoutePing {
     pub ms: Option<u32>,
 }
 
-/// 0.4.0: one group of sign-in hosts, asked straight (its first `check` address).
+/// 0.4.0: one group of sign-in hosts, asked straight. 0.5.7: all its `check` addresses at once; the group is down when any of
+/// them fails.
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct GroupProbe {
     pub id: String,
+    /// The first address that failed, or the first one when all answer (the same for the next three).
     pub host: String,
     pub ok: bool,
     pub problem: Option<&'static str>,
     pub status: Option<u16>,
     pub ms: u32,
+    /// Every address as it answered, for net-check.log.
+    #[serde(skip)]
+    pub checks: Vec<Probe>,
+}
+
+impl GroupProbe {
+    /// The group from the answers of its addresses (at least one).
+    pub fn of(id: &str, checks: Vec<Probe>) -> Option<Self> {
+        let shown = checks.iter().find(|p| !p.ok).or(checks.first())?;
+        Some(GroupProbe {
+            id: id.to_string(),
+            host: shown.host.clone(),
+            ok: shown.ok,
+            problem: shown.problem,
+            status: shown.status,
+            ms: checks.iter().map(|p| p.ms).max().unwrap_or(0),
+            checks,
+        })
+    }
+
+    /// Not one of its addresses answers.
+    pub fn silent(&self) -> bool {
+        !self.ok && self.checks.iter().all(|p| !p.ok)
+    }
 }
 
 /// 0.4.0: the relay tunnel (tunnel.rs), asked for the first group's host.
@@ -171,10 +278,11 @@ pub struct SigninReport {
     pub blocked: bool,
 }
 
-/// 0.4.0: any https address, the way a service is asked (name, TCP, TLS, answer). For the sign-in hosts.
+/// 0.4.0: any https address, the way a service is asked (name, TCP, TLS, answer). For the sign-in hosts. 0.5.7: of a big
+/// answer no more than `VOLUME_BYTES` is read; one that stops below `STALL_BYTES` is a failure ("slow": the «16 KB» cut).
 pub async fn probe_url(url: &str) -> Probe {
     let started = Instant::now();
-    let step = fetch(&client(), url, 0, started + PROBE_BUDGET, true).await;
+    let step = fetch(&client(), url, VOLUME_BYTES, started + PROBE_BUDGET, true).await;
     let first = Probe {
         id: "signin",
         host: host_of(url),
@@ -190,7 +298,7 @@ pub async fn probe_url(url: &str) -> Probe {
     }
     tokio::time::sleep(Duration::from_millis(400)).await;
     let again = Instant::now();
-    let step = fetch(&client(), url, 0, again + PROBE_BUDGET, true).await;
+    let step = fetch(&client(), url, VOLUME_BYTES, again + PROBE_BUDGET, true).await;
     Probe {
         ok: step.problem.is_none(),
         problem: step.problem,
@@ -464,6 +572,9 @@ where
         route: server.route,
         signin: None,
         pings: Vec::new(),
+        // filled by lib.rs once the sign-in and the pings are known
+        proxy: false,
+        plan: "go",
         ms: started.elapsed().as_millis().min(u32::MAX as u128) as u32,
     }
 }
@@ -508,6 +619,14 @@ pub fn log_lines(r: &Report) -> (String, Vec<String>) {
             .collect();
         lines.push(format!("пинг: {}", parts.join(", ")));
     }
+    // 0.5.7: which way «Играть» goes, and why the numbers above may mean nothing
+    if r.proxy {
+        lines.push(
+            "похоже, на ПК VPN или прокси: адреса в разных странах отвечают сразу, отвечает сам ПК; результатам проверки не верить"
+                .into(),
+        );
+    }
+    lines.push(format!("план «Играть»: {}", r.plan));
     lines.extend(r
         .services
         .iter()
@@ -524,14 +643,18 @@ pub fn log_lines(r: &Report) -> (String, Vec<String>) {
         }));
     if let Some(s) = &r.signin {
         for g in &s.groups {
-            lines.push(format!(
-                "вход {} {}: {}{}, {} мс",
-                g.id,
-                g.host,
-                g.problem.unwrap_or("ok"),
-                g.status.map(|s| format!(" (HTTP {s})")).unwrap_or_default(),
-                g.ms
-            ));
+            // 0.5.7: every address of the group, with the bytes (a big one that stops at 16 KB is «slow»)
+            for p in &g.checks {
+                lines.push(format!(
+                    "вход {} {}: {}{}, {} байт, {} мс",
+                    g.id,
+                    p.host,
+                    p.problem.unwrap_or("ok"),
+                    p.status.map(|s| format!(" (HTTP {s})")).unwrap_or_default(),
+                    p.bytes,
+                    p.ms
+                ));
+            }
         }
         // 0.5.0: every relay with its number and why it stopped
         for t in &s.tunnels {
@@ -562,7 +685,7 @@ pub fn log_lines(r: &Report) -> (String, Vec<String>) {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -641,12 +764,183 @@ mod tests {
             route: Some("reserve"),
             signin: None,
             pings: Vec::new(),
+            proxy: false,
+            plan: "go",
             ms: 900,
         };
         let (title, _) = log_lines(&r);
         assert!(title.contains("сервер COLDZ не отвечает; резервный маршрут работает; «Играть»: резервный маршрут"), "{title}");
         let json = serde_json::to_value(&r).unwrap();
         assert_eq!((json["reserve"].clone(), json["route"].clone()), (serde_json::json!(true), serde_json::json!("reserve")));
+    }
+
+    /// 0.5.7: the reports of the brief, (а)–(ж), and what «Играть» does with each.
+    #[test]
+    fn what_play_does() {
+        let tunnel = |ok: bool| TunnelProbe {
+            index: 1,
+            address: "10.0.0.1:8443".into(),
+            ok,
+            status: ok.then_some(403),
+            bytes: if ok { 99_000 } else { 0 },
+            problem: (!ok).then_some("relay"),
+            ms: 300,
+        };
+        let group = |id: &str, ok: bool| GroupProbe {
+            id: id.into(),
+            host: format!("{id}.example"),
+            ok,
+            problem: (!ok).then_some("connect"),
+            status: ok.then_some(403),
+            ms: 5,
+            checks: vec![],
+        };
+        // rockstar answers, cfx answers, a relay answers, the route is on
+        let signin = |rockstar: bool, cfx: bool, relay: bool, active: bool| {
+            Some(SigninReport {
+                blocked: !(rockstar && cfx) && !active,
+                groups: vec![group("rockstar", rockstar), group("cfx", cfx)],
+                tunnel: Some(tunnel(relay)),
+                tunnels: vec![tunnel(relay)],
+                route_stats: None,
+                active,
+            })
+        };
+        // update, auth answer; main server, reserve routes
+        let report = |update: bool, auth: bool, main: bool, reserve: Option<bool>, s: Option<SigninReport>| {
+            let services = vec![p("update", update, true), p("auth", auth, true), p("policy", auth, true), p("list", update, false)];
+            let server = ServerCheck { main: Some(main), reserve, route: None };
+            let internet = update || auth || s.as_ref().is_some_and(|s| s.groups.iter().any(|g| g.ok) || s.tunnel.as_ref().is_some_and(|t| t.ok));
+            let mut r = Report {
+                verdict: verdict(&services, server.reachable(), internet),
+                blocking: blocking(&services),
+                services,
+                server: server.main,
+                reserve: server.reserve,
+                route: None,
+                signin: s,
+                pings: Vec::new(),
+                proxy: false,
+                plan: "",
+                ms: 1,
+            };
+            r.plan = plan(&r);
+            r
+        };
+        let up = Some(true);
+
+        // (а) everything answers
+        assert_eq!(report(true, true, true, up, signin(true, true, true, false)).plan, "go");
+        // no sign-in setup, no reserve routes, only the server list is cut: FiveM at once
+        assert_eq!(report(true, true, true, None, None).plan, "go");
+        // (б) the sign-in is cut, the relay answers: through the COLDZ server, no questions
+        assert_eq!(report(true, true, true, up, signin(false, true, true, false)).plan, "via");
+        // also when the license service is cut (the same route carries it)
+        assert_eq!(report(true, false, true, up, signin(true, false, true, false)).plan, "via");
+        // (в), (г) the prompt is declined, port 443 is taken: the same plan, the window shows the error of signin_enable
+        // (д) the relay is dead too
+        assert_eq!(report(true, true, true, up, signin(false, true, false, false)).plan, "noroute");
+        // (е) the main server is silent, a reserve route answers: FiveM at once, through it
+        assert_eq!(report(true, true, false, up, signin(true, true, true, false)).plan, "go");
+        // both: through the reserve route and the sign-in through the COLDZ server
+        assert_eq!(report(true, true, false, up, signin(false, true, true, false)).plan, "via");
+        // (ж) nothing answers
+        assert_eq!(report(false, false, false, Some(false), signin(false, false, false, false)).plan, "offline");
+
+        // COLDZ is down: no Windows prompt for nothing
+        assert_eq!(report(true, true, false, Some(false), signin(true, true, true, false)).plan, "server");
+        assert_eq!(report(true, true, false, Some(false), signin(false, true, true, false)).plan, "server");
+        // the player's provider comes first when nothing of ours can help
+        assert_eq!(report(true, true, false, Some(false), signin(false, true, false, false)).plan, "noroute");
+        assert_eq!(report(false, false, false, Some(false), signin(true, true, true, false)).plan, "cfx");
+        // FiveM's updates are cut, the sign-in answers: the agreed text about the provider
+        assert_eq!(report(false, true, true, up, signin(true, true, true, false)).plan, "cfx");
+        // the route is on: it answers, or it does not
+        assert_eq!(report(true, true, true, up, signin(true, true, true, true)).plan, "go");
+        assert_eq!(report(true, true, true, up, signin(false, true, true, true)).plan, "via_bad");
+        assert_eq!(report(false, false, true, up, signin(false, false, false, true)).plan, "via_bad");
+        // one address of the group does not answer through it, the others do: FiveM at once
+        let mut half = report(true, true, true, up, signin(true, true, true, true));
+        if let Some(s) = half.signin.as_mut() {
+            s.groups[0] = GroupProbe::of("rockstar", vec![p("a", true, true), p("b", false, true)]).unwrap();
+            assert!(!s.groups[0].ok && !s.groups[0].silent());
+        }
+        assert_eq!(plan(&half), "go");
+
+        // a VPN or proxy on the PC: what is wrong cannot be believed, what works still works
+        let with_proxy = |mut r: Report| {
+            r.proxy = true;
+            plan(&r)
+        };
+        assert_eq!(with_proxy(report(true, true, true, up, signin(false, true, true, false))), "proxy");
+        assert_eq!(with_proxy(report(true, true, true, up, signin(false, true, false, false))), "proxy");
+        assert_eq!(with_proxy(report(false, false, false, Some(false), None)), "proxy");
+        assert_eq!(with_proxy(report(true, true, true, up, signin(true, true, true, false))), "go");
+        let json = serde_json::to_value(report(true, true, true, up, None)).unwrap();
+        assert_eq!((json["plan"].clone(), json["proxy"].clone()), (serde_json::json!("go"), serde_json::json!(false)));
+    }
+
+    /// 0.5.7: a group of sign-in hosts is down when any of its addresses is.
+    #[test]
+    fn a_group_fails_with_any_of_its_addresses() {
+        let (ok, bad) = (p("a", true, true), p("b", false, true));
+        let g = GroupProbe::of("rockstar", vec![ok.clone(), ok.clone()]).unwrap();
+        assert!(g.ok && g.host == "a.example" && g.checks.len() == 2);
+        // the second one fails: the group fails, and the window and the log name it
+        let g = GroupProbe::of("rockstar", vec![ok.clone(), bad.clone(), ok.clone()]).unwrap();
+        assert_eq!((g.ok, g.host.as_str(), g.problem), (false, "b.example", Some("connect")));
+        assert_eq!(GroupProbe::of("rockstar", vec![]), None);
+        let r = SigninReport { groups: vec![g], tunnel: None, tunnels: vec![], route_stats: None, active: false, blocked: true };
+        let report = Report {
+            verdict: "ok",
+            blocking: false,
+            services: vec![],
+            server: Some(true),
+            reserve: None,
+            route: None,
+            signin: Some(r),
+            pings: vec![],
+            proxy: false,
+            plan: "noroute",
+            ms: 1,
+        };
+        let (_, lines) = log_lines(&report);
+        assert!(lines.contains(&"вход rockstar a.example: ok (HTTP 200), 0 байт, 1 мс".to_string()), "{lines:?}");
+        assert!(lines.contains(&"вход rockstar b.example: connect, 0 байт, 1 мс".to_string()), "{lines:?}");
+        let json = serde_json::to_value(&report).unwrap();
+        assert_eq!(json["signin"]["groups"][0]["host"], "b.example");
+        assert!(json["signin"]["groups"][0].get("checks").is_none());
+    }
+
+    /// 0.5.7, a player's screenshot: Moscow, Warsaw and Almaty in 1 ms each.
+    #[test]
+    fn answers_too_fast_for_the_distance() {
+        let cfg: ProxyCheck = serde_json::from_value(serde_json::json!({
+            "maxMs": 3, "minPlaces": 2,
+            "places": { "92.118.11.28:28683": "ru", "177.3.198.34:30120": "pl", "46.247.40.34:30120": "kz", "92.118.11.28:1": "ru" }
+        }))
+        .unwrap();
+        let ping = |address: &str, ms: Option<u32>| RoutePing { kind: "reserve", index: 1, address: address.into(), ms };
+        let check = |a: Option<u32>, b: Option<u32>, c: Option<u32>| {
+            let pings = [ping("92.118.11.28:28683", a), ping("177.3.198.34:30120", b), ping("46.247.40.34:30120", c)];
+            answered_here(&pings, &cfg).len()
+        };
+        assert_eq!(check(Some(1), Some(1), Some(1)), 3);
+        assert_eq!(check(Some(3), Some(2), Some(80)), 2);
+        // a player next door to one of them, or ordinary pings
+        assert_eq!(check(Some(1), Some(34), Some(80)), 0);
+        assert_eq!(check(Some(4), Some(4), Some(4)), 0);
+        assert_eq!(check(None, None, None), 0);
+        // two addresses in one place are one place; an unknown address does not count
+        assert_eq!(answered_here(&[ping("92.118.11.28:28683", Some(1)), ping("92.118.11.28:1", Some(1))], &cfg).len(), 0);
+        assert_eq!(answered_here(&[ping("92.118.11.28:28683", Some(1)), ping("1.2.3.4:5", Some(1))], &cfg).len(), 0);
+        // off, and limits that make no sense
+        let fast = [ping("92.118.11.28:28683", Some(1)), ping("177.3.198.34:30120", Some(1))];
+        assert!(answered_here(&fast, &ProxyCheck::default()).is_empty());
+        assert!(answered_here(&fast, &ProxyCheck { max_ms: 0, ..cfg.clone() }).is_empty());
+        let one = ProxyCheck { max_ms: 5000, min_places: 0, ..cfg.clone() };
+        assert_eq!(answered_here(&[ping("92.118.11.28:28683", Some(1))], &one).len(), 0);
+        assert_eq!(answered_here(&[ping("92.118.11.28:28683", Some(50)), ping("177.3.198.34:30120", Some(50))], &one).len(), 0);
     }
 
     #[test]
@@ -682,7 +976,7 @@ mod tests {
 
     /// What a fake server on 127.0.0.1 does with each request.
     #[derive(Clone, Copy)]
-    enum Fake {
+    pub enum Fake {
         /// answer `status` with `len` bytes of body
         Answer(u16, usize),
         /// answer `status` with this body (our server's /info.json)
@@ -699,7 +993,7 @@ mod tests {
 
     /// A fake server: accepts connections until the test ends. Connections that send nothing (the launcher's TCP
     /// check) are just closed.
-    async fn fake(kind: Fake) -> u16 {
+    pub async fn fake(kind: Fake) -> u16 {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         tokio::spawn(async move {
@@ -792,7 +1086,7 @@ mod tests {
 
             // 0.3.4: a slow connection, 4 KB every 150 ms: still coming when the time is up, past 32 KB: it works
             let port = fake(Fake::Trickle(99_180, 4 * 1024, 150)).await;
-            let s = fetch(&c, &format!("http://127.0.0.1:{port}/m"), VOLUME_BYTES, soon(1500), true).await;
+            let s = fetch(&c, &format!("http://127.0.0.1:{port}/m"), 2 * VOLUME_BYTES, soon(3000), true).await;
             assert_eq!(s.problem, None, "{} bytes", s.bytes);
             assert!(s.bytes >= STALL_BYTES, "{}", s.bytes);
 
@@ -862,13 +1156,16 @@ mod tests {
             route: None,
             signin: None,
             pings: Vec::new(),
+            proxy: false,
+            plan: "cfx",
             ms: 8100,
         };
         let (title, lines) = log_lines(&r);
         assert!(title.starts_with("проверка связи: cfx_blocked"), "{title}");
         assert!(title.contains("сервер COLDZ отвечает; 8100"), "{title}");
-        assert_eq!(lines[0], "update update.example: slow, 16384 байт, 1 мс");
-        assert_eq!(lines[1], "auth auth.example: ok (HTTP 200), 0 байт, 1 мс");
+        assert_eq!(lines[0], "план «Играть»: cfx");
+        assert_eq!(lines[1], "update update.example: slow, 16384 байт, 1 мс");
+        assert_eq!(lines[2], "auth auth.example: ok (HTTP 200), 0 байт, 1 мс");
         let json = serde_json::to_value(&r).unwrap();
         assert_eq!(json["services"][0]["problem"], "slow");
         assert_eq!(json["services"][1]["problem"], serde_json::Value::Null);
@@ -905,6 +1202,8 @@ mod tests {
                 RoutePing { kind: "main", index: 0, address: "92.118.11.28:28683".into(), ms: Some(34) },
                 RoutePing { kind: "reserve", index: 1, address: "177.3.198.34:30120".into(), ms: None },
             ],
+            proxy: false,
+            plan: "go",
             ms: 1,
         };
         let (_, lines) = log_lines(&r);

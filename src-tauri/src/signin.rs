@@ -1,4 +1,4 @@
-//! Reserve route for the FiveM sign-in (0.4.0, Alexander 18.11.2026: «вход в FiveM из России без VPN» is the first task).
+//! FiveM sign-in through the COLDZ server (0.4.0, Alexander 18.11.2026: «вход в FiveM из России без VPN» is the first task).
 //!
 //! What breaks. Players in Russia could start FiveM only this way: turn a VPN on, let FiveM sign in, turn the VPN off,
 //! connect with F8. Measured 18.11.2026: the Cfx.re services the launcher already checks (netcheck.rs) answer from
@@ -10,29 +10,30 @@
 //! players see is «Failed to connect to authentication services». Data-centre nodes in Moscow reach the same hosts,
 //! so it is the home providers' filtering, not Rockstar.
 //!
-//! What the launcher does (only when the player turns it on, the Windows prompt confirms it):
+//! What the launcher does (0.5.7: by itself on «Играть», Alexander 23.11.2026; the Windows prompt confirms it):
 //! 1. netcheck.rs asks the sign-in hosts straight (`check`): they answer: nothing to do.
-//! 2. They do not, and a COLDZ relay answers through the tunnel (tunnel.rs): the window offers «Включить резервный
-//!    маршрут входа». On the click the launcher
-//!    * listens on 127.0.0.1:443 (or 127.88.0.1:443) and forwards every connection, byte for byte, to the relay inside
+//! 2. They do not, and a COLDZ relay answers through the tunnel (tunnel.rs): `netcheck::plan` says "via", and «Играть»
+//!    (no questions in the window) makes the launcher
+//!    * listen on 127.0.0.1:443 (or 127.88.0.1:443) and forward every connection, byte for byte, to the relay inside
 //!      one encrypted connection whose certificate is pinned (news.json `signin.tunnels[].sha256`); the relay sends
 //!      it on to the real host named in the player's own TLS handshake (nginx `ssl_preread`, only the hosts below);
 //!      the encryption between FiveM and Rockstar stays end to end, the launcher and the relay never see inside;
-//!    * writes the sign-in hosts into `C:\Windows\System32\drivers\etc\hosts` pointing at that local address, between
+//!    * write the sign-in hosts into `C:\Windows\System32\drivers\etc\hosts` pointing at that local address, between
 //!      the two marker lines below (hosts.rs: one Windows administrator prompt), so FiveM's own requests go to the
-//!      launcher first;
-//!    * removes the lines when the player turns the route off or closes the launcher (one more prompt), and at the
-//!      next start repairs or removes a block left behind by a crash.
+//!      launcher first; the elevated copy stays until the launcher closes and removes the lines itself (no second
+//!      prompt), also when the launcher crashes or Windows shuts down;
+//!    * at the next start repair or remove a block left behind all the same (power cut).
 //! 3. The hosts and the relays come from news.json (`signin`), with built-in defaults in launcher.config.json: a
 //!    new host or relay needs no new launcher build.
 //!
-//! Texts for the player are neutral («резервный маршрут входа», ui/i18n.js): nothing about ways around blocks
+//! Texts for the player: «Вход через сервер COLDZ» (ui/i18n.js `via_*`, `net_via*`): nothing about ways around blocks
 //! (docs/ПРАВИЛА.md). The relay side: `relay/tunnel/README.md`.
 
 use serde::{Deserialize, Serialize};
 
 /// First and last line of the launcher's block in the hosts file. Everything between them is ours; the launcher
-/// never touches other lines.
+/// never touches other lines. The words are those of 0.4.0 and must stay: a block left by an older launcher is
+/// recognised by this exact line.
 pub const BEGIN: &str = "# COLDZ Launcher: begin (резервный маршрут входа FiveM; лаунчер убирает эти строки сам)";
 pub const END: &str = "# COLDZ Launcher: end";
 
@@ -40,9 +41,10 @@ pub const MAX_HOSTS: usize = 40;
 pub const MAX_TUNNELS: usize = 8;
 pub const MAX_CHECKS: usize = 4;
 
-/// One group of hosts that fail together (the Rockstar sign-in; the Cfx.re services as a second group when they
-/// turn out to be cut somewhere): `check` — addresses the launcher asks straight and through the tunnel (any HTTP
-/// answer counts), `hosts` — the names the hosts file points at the launcher while the route is on.
+/// One group of hosts that fail together (the Rockstar sign-in; the Cfx.re services FiveM asks after it): `check` —
+/// addresses the launcher asks straight, and through the tunnel while the route is on: any HTTP answer counts, but of a big
+/// one at least 32 KB must come (netcheck.rs `STALL_BYTES`: the «16 KB» cut); 0.5.7: the group is down when any of them
+/// fails. `hosts` — the names the hosts file points at the launcher while the route is on.
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Group {
@@ -140,21 +142,12 @@ pub fn clean(raw: &Setup) -> Setup {
     Setup { groups, tunnels }
 }
 
-/// Every host of every group, in order.
+/// Every host of every group, in order: what the hosts file points at the launcher while the route is on. 0.5.7 (Alexander
+/// 23.11): always all of them, not only the groups that failed. After the Rockstar sign-in FiveM asks its own services
+/// (license, ticket, policy); they went straight, and players in Russia still got «Failed to connect to authentication
+/// services».
 pub fn all_hosts(s: &Setup) -> Vec<String> {
     s.groups.iter().flat_map(|g| g.hosts.iter().cloned()).collect()
-}
-
-/// The hosts of the groups whose straight check failed (`failed` — group ids). No group failed (the player turned
-/// the route on by hand, or the check is old): every host, so the route works whatever is cut.
-pub fn hosts_to_route(s: &Setup, failed: &[String]) -> Vec<String> {
-    let picked: Vec<String> =
-        s.groups.iter().filter(|g| failed.contains(&g.id)).flat_map(|g| g.hosts.iter().cloned()).collect();
-    if picked.is_empty() {
-        all_hosts(s)
-    } else {
-        picked
-    }
 }
 
 /// The launcher's block for the hosts file: `<ip> <host>` per line between the markers, Windows line ends.
@@ -191,38 +184,46 @@ pub fn valid_block_line(line: &str) -> bool {
 }
 
 /// The hosts file without the launcher's block (and without a half block: BEGIN with no END takes the rest of the
-/// file, END with no BEGIN is dropped alone). Other lines stay byte for byte.
-pub fn strip(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
+/// file, END with no BEGIN is dropped alone). Other lines stay byte for byte: the file may hold comments in any
+/// encoding (0.5.7: bytes, not text).
+pub fn strip(text: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(text.len());
     let mut inside = false;
-    for line in text.split_inclusive('\n') {
-        let bare = line.trim_end_matches(['\r', '\n']);
+    for line in text.split_inclusive(|b| *b == b'\n') {
+        let bare = trim_line(line);
         if inside {
-            if bare == END {
+            if bare == END.as_bytes() {
                 inside = false;
             }
             continue;
         }
-        if bare == BEGIN {
+        if bare == BEGIN.as_bytes() {
             inside = true;
             continue;
         }
-        if bare == END {
+        if bare == END.as_bytes() {
             continue;
         }
-        out.push_str(line);
+        out.extend_from_slice(line);
     }
     out
 }
 
+fn trim_line(mut line: &[u8]) -> &[u8] {
+    while let [rest @ .., b'\r' | b'\n'] = line {
+        line = rest;
+    }
+    line
+}
+
 /// The hosts file with the launcher's block replaced (Some) or removed (None).
-pub fn with_block(text: &str, block: Option<&str>) -> String {
+pub fn with_block(text: &[u8], block: Option<&str>) -> Vec<u8> {
     let mut out = strip(text);
     if let Some(b) = block {
-        if !out.is_empty() && !out.ends_with('\n') {
-            out.push_str("\r\n");
+        if !out.is_empty() && !out.ends_with(b"\n") {
+            out.extend_from_slice(b"\r\n");
         }
-        out.push_str(b);
+        out.extend_from_slice(b.as_bytes());
     }
     out
 }
@@ -310,9 +311,11 @@ mod tests {
         assert_eq!(c.groups[0].hosts, ["scui.rockstargames.com", "signin.rockstargames.com"]);
         assert_eq!(c.tunnels.len(), 1);
         assert_eq!(all_hosts(&c).len(), 4);
-        assert_eq!(hosts_to_route(&c, &["cfx".to_string()]), ["lambda.fivem.net", "policy-live.fivem.net"]);
-        // nothing failed: everything, so a route turned on by hand covers whatever is cut
-        assert_eq!(hosts_to_route(&c, &[]).len(), 4);
+        // 0.5.7: the route carries the hosts of every group, whichever failed
+        assert_eq!(
+            all_hosts(&c),
+            ["scui.rockstargames.com", "signin.rockstargames.com", "lambda.fivem.net", "policy-live.fivem.net"]
+        );
         assert!(clean(&Setup::default()).groups.is_empty());
     }
 
@@ -326,25 +329,34 @@ mod tests {
         assert_eq!(installed(&b), Some(("127.0.0.1".to_string(), all_hosts(&c))));
 
         let original = "# Copyright (c) 1993-2009 Microsoft Corp.\r\n#\r\n127.0.0.1 localhost\r\n";
-        let with = with_block(original, Some(&b));
-        assert!(with.starts_with(original));
-        assert_eq!(strip(&with), original);
-        assert_eq!(with_block(&with, None), original);
+        let with = with_block(original.as_bytes(), Some(&b));
+        assert!(with.starts_with(original.as_bytes()));
+        assert_eq!(strip(&with), original.as_bytes());
+        assert_eq!(with_block(&with, None), original.as_bytes());
         // replaced, not doubled
         let again = with_block(&with, Some(&block("127.88.0.1", &["rsg.sc".to_string()])));
+        let again = String::from_utf8(again).unwrap();
         assert_eq!(again.matches(BEGIN).count(), 1);
         assert_eq!(installed(&again), Some(("127.88.0.1".to_string(), vec!["rsg.sc".to_string()])));
         // a file without a final line end gets one before the block
-        assert!(with_block("127.0.0.1 localhost", Some(&b)).contains("localhost\r\n# COLDZ"));
+        let joined = String::from_utf8(with_block(b"127.0.0.1 localhost", Some(&b))).unwrap();
+        assert!(joined.contains("localhost\r\n# COLDZ"));
         assert_eq!(installed(original), None);
+        // 0.5.7: comments in another encoding (cp1251 here) stay byte for byte
+        let mut foreign = b"# \xcf\xf0\xe8\xe2\xe5\xf2\r\n127.0.0.1 localhost\r\n".to_vec();
+        let with = with_block(&foreign, Some(&b));
+        assert!(with.starts_with(&foreign));
+        assert_eq!(with_block(&with, None), foreign);
+        foreign.extend_from_slice(b"\n\n# \xff\xfe tail without a line end");
+        assert_eq!(strip(&foreign), foreign);
     }
 
     #[test]
     fn strip_handles_broken_blocks() {
         let half = format!("a\r\n{BEGIN}\r\n127.0.0.1 x.y\r\n");
-        assert_eq!(strip(&half), "a\r\n");
+        assert_eq!(strip(half.as_bytes()), b"a\r\n");
         let tail_only = format!("a\r\n{END}\r\nb\r\n");
-        assert_eq!(strip(&tail_only), "a\r\nb\r\n");
+        assert_eq!(strip(tail_only.as_bytes()), b"a\r\nb\r\n");
         assert_eq!(installed(&half), Some(("127.0.0.1".to_string(), vec!["x.y".to_string()])));
     }
 

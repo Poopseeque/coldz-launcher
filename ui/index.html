@@ -47,7 +47,7 @@
           <span class="dot"></span>
           <span class="status__state">
             <span id="status-text" data-i18n="checking"></span>
-            <!-- 0.3.5: маршрут к серверу (src-tauri/src/route.rs): «Подключение: основной сервер» / «резервный маршрут» -->
+            <!-- 0.3.5: маршрут к серверу (src-tauri/src/route.rs): «Подключение: основной сервер» / «запасной сервер» -->
             <small class="status__route" id="route-text" hidden></small>
             <!-- 0.5.0: «Перезапуск через N мин» (сервер: z_menu /z_menu/online, vars.coldz_restart_at) -->
             <small class="status__route status__restart" id="restart-text" hidden></small>
@@ -94,11 +94,11 @@
         <div class="fivem__actions" id="fivem-stuck" hidden>
           <button class="btn btn--accent" id="btn-close-fivem" data-i18n="close_fivem"></button>
         </div>
-        <!-- 0.3.4: проверка связи (при запуске лаунчера, «Играть», «Повторить») нашла, без чего FiveM не запустится:
+        <!-- 0.3.4: проверка связи (при запуске лаунчера, «Играть», «Проверить ещё раз») нашла, без чего FiveM не запустится:
              строка вместо «FiveM установлен», «Играть» не блокируется. Ссылки, а не кнопки: вместе с плашкой
              обновления всё влезает в окно 1120×680 -->
         <p class="fivem__links" id="fivem-net" hidden>
-          <button class="address__copy" id="btn-net-retry" data-i18n="net_retry"></button>
+          <button class="address__copy" id="btn-net-retry" data-i18n="net_recheck"></button>
           <button class="address__copy" id="btn-net-details" data-i18n="net_details"></button>
         </p>
         <!-- 0.5.4: докачка файла игры для сервера до запуска FiveM (src-tauri/src/storage.rs): полоска, «Отменить»,
@@ -148,16 +148,24 @@
     <div class="dialog__card" role="dialog" aria-modal="true" aria-labelledby="net-title">
       <h2 class="dialog__title" id="net-title" data-i18n="net_title"></h2>
       <p class="dialog__text" id="net-text"></p>
-      <ul class="netlist" id="net-list"></ul>
       <p class="dialog__hint" id="net-hint" hidden></p>
-      <!-- 0.4.0: резервный маршрут входа в FiveM (src-tauri/src/signin.rs): кнопка видна, когда вход Rockstar не
-           отвечает, а маршрут COLDZ отвечает; под ней одной строкой, что потребуются права администратора и файл hosts -->
-      <p class="dialog__hint" id="net-signin-note" hidden data-i18n="net_signin_note"></p>
+      <!-- 0.5.7 (Александр 23.11): одна главная кнопка и «Закрыть», список свёрнут под «Подробнее», маленькая ссылка
+           «Играть без этого» только у ошибки после «Играть». Включать вход через сервер COLDZ кнопкой не надо: «Играть»
+           делает это сама (src-tauri/src/signin.rs, README 7г) -->
       <div class="dialog__actions">
-        <button class="btn btn--accent" id="btn-net-signin" hidden></button>
-        <button class="btn btn--accent" id="btn-net-play" hidden></button>
-        <button class="btn" id="btn-net-recheck" data-i18n="net_retry"></button>
+        <button class="btn btn--accent" id="btn-net-main"></button>
         <button class="btn" id="btn-net-close" data-i18n="close"></button>
+      </div>
+      <p class="fivem__links dialog__links">
+        <button class="address__copy" id="btn-net-more" aria-controls="net-more" aria-expanded="false"></button>
+        <button class="address__copy" id="btn-net-without" hidden data-i18n="play_without"></button>
+      </p>
+      <div id="net-more" hidden>
+        <ul class="netlist" id="net-list"></ul>
+        <p class="dialog__hint" id="net-via-note" hidden data-i18n="via_note"></p>
+        <p class="fivem__links" id="net-via-off" hidden>
+          <button class="address__copy" id="btn-via-off"></button>
+        </p>
       </div>
     </div>
   </div>
@@ -168,7 +176,7 @@
       <h2 class="dialog__title" id="restart-title" data-i18n="restart_title"></h2>
       <p class="dialog__text" id="restart-card-text"></p>
       <div class="dialog__actions">
-        <button class="btn btn--accent" id="btn-restart-play" data-i18n="play_anyway"></button>
+        <button class="btn btn--accent" id="btn-restart-play" data-i18n="play_now"></button>
         <button class="btn" id="btn-restart-close" data-i18n="close"></button>
       </div>
     </div>

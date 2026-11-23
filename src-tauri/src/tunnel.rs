@@ -10,6 +10,13 @@
 //!
 //! The launcher only forwards connections whose handshake names one of the hosts it put into the hosts file
 //! (`sni_of`): anything else is dropped at once, so the listener is no use to other programs.
+//!
+//! 0.5.7, long connections (a player got through the sign-in and FiveM stopped at its menu): the launcher has no idle
+//! limit of its own (the relay's is 15 minutes without a byte, `proxy_timeout`); the connection to the relay keeps
+//! itself alive on quiet routers (`KEEPALIVE`); a program that has only finished sending still gets the rest of the
+//! answer (`shuttle`: nginx drops both directions as soon as it hears the end of one, so the end is told to it last); the
+//! handshake is read until the name is there (`hello_name`: it may come in pieces or be longer than 2 KB); a relay that
+//! stops answering is replaced by the next one without touching the hosts file (`Forward::connect`).
 
 use crate::signin::Tunnel;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
@@ -30,6 +37,13 @@ pub const PORT: u16 = 443;
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(6);
 /// How long a new local connection may take to send its handshake before it is dropped.
 const HELLO_TIMEOUT: Duration = Duration::from_secs(5);
+/// The longest handshake the launcher looks for a name in: one TLS record (16 KB) and its header.
+const HELLO_MAX: usize = 16 * 1024 + 5;
+/// Quiet time after which the connection to the relay asks whether it is still there, and how often it repeats.
+const KEEPALIVE: Duration = Duration::from_secs(30);
+const KEEPALIVE_EVERY: Duration = Duration::from_secs(10);
+/// One side has finished: how long the other may stay silent before the connection is closed.
+const LINGER: Duration = Duration::from_secs(20);
 /// The whole probe of one tunnel («Проверить связь»).
 pub const PROBE_TIMEOUT: Duration = Duration::from_secs(8);
 
@@ -163,6 +177,9 @@ pub async fn open(tunnel: &Tunnel) -> std::io::Result<TlsStream<TcpStream>> {
     let connect = async {
         let tcp = TcpStream::connect((host, port)).await?;
         let _ = tcp.set_nodelay(true);
+        // home routers and mobile networks forget a quiet connection after a few minutes
+        let keep = socket2::TcpKeepalive::new().with_time(KEEPALIVE).with_interval(KEEPALIVE_EVERY);
+        let _ = socket2::SockRef::from(&tcp).set_tcp_keepalive(&keep);
         let connector = TlsConnector::from(client_config(Arc::new(Pinned(pin))));
         connector.connect(name, tcp).await
     };
@@ -214,12 +231,16 @@ pub fn sni_of(bytes: &[u8]) -> Option<String> {
 
 /// The listener on port 443 of the first free loopback address. Err: both are taken.
 pub fn bind_local() -> std::io::Result<(std::net::TcpListener, IpAddr)> {
+    bind_first(&LOCAL.map(|ip| SocketAddr::from((ip, PORT))))
+}
+
+fn bind_first(addresses: &[SocketAddr]) -> std::io::Result<(std::net::TcpListener, IpAddr)> {
     let mut last = std::io::Error::from(std::io::ErrorKind::AddrInUse);
-    for ip in LOCAL {
-        match std::net::TcpListener::bind(SocketAddr::from((ip, PORT))) {
+    for a in addresses {
+        match std::net::TcpListener::bind(a) {
             Ok(l) => {
                 l.set_nonblocking(true)?;
-                return Ok((l, IpAddr::V4(ip)));
+                return Ok((l, a.ip()));
             }
             Err(e) => last = e,
         }
@@ -227,18 +248,56 @@ pub fn bind_local() -> std::io::Result<(std::net::TcpListener, IpAddr)> {
     Err(last)
 }
 
-/// What the listener forwards: the relay and the hosts it may be asked for.
+/// What the listener forwards: the relays (the one in use and the others, for when it stops answering) and the hosts
+/// it may be asked for.
 #[derive(Debug)]
 pub struct Forward {
-    pub tunnel: Tunnel,
+    tunnels: Vec<Tunnel>,
+    current: std::sync::atomic::AtomicUsize,
     pub hosts: Vec<String>,
     /// 0.5.0: what went through (net-check.log).
     pub stats: std::sync::Mutex<Stats>,
 }
 
 impl Forward {
-    pub fn new(tunnel: Tunnel, hosts: Vec<String>) -> Self {
-        Forward { tunnel, hosts, stats: Default::default() }
+    /// `tunnels`: the chosen relay first, then the others of news.json.
+    pub fn new(tunnels: Vec<Tunnel>, hosts: Vec<String>) -> Self {
+        Forward { tunnels, current: Default::default(), hosts, stats: Default::default() }
+    }
+
+    fn index(&self) -> usize {
+        self.current.load(std::sync::atomic::Ordering::Relaxed).min(self.tunnels.len().saturating_sub(1))
+    }
+
+    /// The relay in use.
+    pub fn address(&self) -> &str {
+        self.tunnels.get(self.index()).map(|t| t.address.as_str()).unwrap_or_default()
+    }
+
+    /// The connection check found this relay carrying data while the one in use does not (lib.rs `signin_check`).
+    pub fn prefer(&self, address: &str) {
+        if let Some(i) = self.tunnels.iter().position(|t| t.address == address) {
+            self.current.store(i, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
+    /// 0.5.7: a connection to the relay in use, or to the first other one that answers (it is then the one in use).
+    async fn connect(&self) -> std::io::Result<TlsStream<TcpStream>> {
+        let first = self.index();
+        let mut last = bad("no relay");
+        for i in (first..self.tunnels.len()).chain(0..first) {
+            match open(&self.tunnels[i]).await {
+                Ok(s) => {
+                    if i != first {
+                        self.current.store(i, std::sync::atomic::Ordering::Relaxed);
+                        self.note(|s| s.switched += 1);
+                    }
+                    return Ok(s);
+                }
+                Err(e) => last = e,
+            }
+        }
+        Err(last)
     }
 
     pub fn stats(&self) -> Stats {
@@ -264,14 +323,34 @@ pub async fn serve(listener: TcpListener, forward: Arc<Forward>) {
     }
 }
 
-async fn pipe(mut local: TcpStream, f: &Forward) -> std::io::Result<()> {
+/// The host name in the handshake of a new local connection, without taking the bytes. None: not a handshake, or it has
+/// no name.
+async fn hello_name(local: &TcpStream) -> Option<String> {
+    let mut head = vec![0u8; HELLO_MAX];
+    loop {
+        let n = local.peek(&mut head).await.ok()?;
+        if n == 0 || head[0] != 0x16 {
+            return None;
+        }
+        if let Some(name) = sni_of(&head[..n]) {
+            return Some(name);
+        }
+        // the whole record is here and has no name in it
+        if n >= 5 && n >= (5 + u16::from_be_bytes([head[3], head[4]]) as usize).min(head.len()) {
+            return None;
+        }
+        // the rest is still coming (peek does not wait for it)
+        tokio::time::sleep(Duration::from_millis(15)).await;
+    }
+}
+
+async fn pipe(local: TcpStream, f: &Forward) -> std::io::Result<()> {
     let _ = local.set_nodelay(true);
-    // the first bytes without taking them: FiveM's handshake names the host; a name we did not redirect is dropped
-    let mut head = [0u8; 2048];
-    let n = tokio::time::timeout(HELLO_TIMEOUT, local.peek(&mut head))
+    // FiveM's handshake names the host; a name we did not redirect is dropped
+    let name = tokio::time::timeout(HELLO_TIMEOUT, hello_name(&local))
         .await
-        .map_err(|_| std::io::Error::from(std::io::ErrorKind::TimedOut))??;
-    let Some(name) = sni_of(&head[..n]) else {
+        .map_err(|_| std::io::Error::from(std::io::ErrorKind::TimedOut))?;
+    let Some(name) = name else {
         f.note(|s| s.refuse("no name"));
         return Err(bad("no name"));
     };
@@ -280,7 +359,7 @@ async fn pipe(mut local: TcpStream, f: &Forward) -> std::io::Result<()> {
         return Err(bad("not ours"));
     }
     let started = std::time::Instant::now();
-    let mut remote = match open(&f.tunnel).await {
+    let remote = match f.connect().await {
         Ok(r) => r,
         Err(e) => {
             f.note(|s| s.refuse("relay"));
@@ -288,15 +367,102 @@ async fn pipe(mut local: TcpStream, f: &Forward) -> std::io::Result<()> {
         }
     };
     f.note(|s| s.connections += 1);
-    let (up, down) = tokio::io::copy_bidirectional(&mut local, &mut remote).await.unwrap_or((0, 0));
-    let _ = remote.shutdown().await;
+    let done = shuttle(local, remote, LINGER).await;
     let ms = started.elapsed().as_millis() as u64;
     f.note(|s| {
-        s.up += up;
-        s.down += down;
-        s.last = Some((name.clone(), up, down, ms));
+        s.up += done.up;
+        s.down += done.down;
+        s.longest = s.longest.max(ms);
+        s.ended(done.first);
+        s.last = Some((name.clone(), done.up, done.down, ms));
     });
     Ok(())
+}
+
+/// How one forwarded connection went.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Done {
+    up: u64,
+    down: u64,
+    /// Who ended it: "program" (FiveM finished), "server" (the other side finished), "break" (an error: the network, the
+    /// relay, a reset).
+    first: &'static str,
+}
+
+/// Both directions until both have ended. There is no idle limit while both are open (presence and push connections stay
+/// quiet for minutes). Once one side has ended, the other may go on as long as something comes at least every `linger`.
+async fn shuttle<L, R>(local: L, remote: R, linger: Duration) -> Done
+where
+    L: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+    R: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    use std::sync::atomic::{AtomicU64, Ordering};
+    let (mut lr, mut lw) = tokio::io::split(local);
+    let (mut rr, mut rw) = tokio::io::split(remote);
+    let (up, down) = (AtomicU64::new(0), AtomicU64::new(0));
+    let first = {
+        let sending = copy(&mut lr, &mut rw, &up);
+        let coming = copy(&mut rr, &mut lw, &down);
+        tokio::pin!(sending, coming);
+        tokio::select! {
+            r = &mut sending => {
+                if r.is_ok() {
+                    // FiveM has nothing more to send, the answer may still be on its way. The relay is told nothing yet:
+                    // nginx would close both directions.
+                    rest(coming, &down, linger).await;
+                }
+                if r.is_ok() { "program" } else { "break" }
+            }
+            r = &mut coming => if r.is_ok() { "server" } else { "break" }
+        }
+    };
+    if first == "server" {
+        // FiveM hears the end at once; what it still says has nobody to go to, but is read: closing a socket with unread
+        // bytes in it resets it, and Windows may then throw away the answer FiveM has not read yet
+        let _ = lw.shutdown().await;
+        let mut buf = vec![0u8; 4096];
+        while let Ok(Ok(1..)) = tokio::time::timeout(linger, lr.read(&mut buf)).await {}
+    }
+    let _ = tokio::time::timeout(Duration::from_secs(2), async {
+        let _ = lw.shutdown().await;
+        let _ = rw.shutdown().await;
+    })
+    .await;
+    Done { up: up.load(Ordering::Relaxed), down: down.load(Ordering::Relaxed), first }
+}
+
+/// Runs the direction that is left until it ends or nothing has come for `linger`.
+async fn rest<F: std::future::Future>(mut left: std::pin::Pin<&mut F>, bytes: &std::sync::atomic::AtomicU64, linger: Duration) {
+    let mut seen = bytes.load(std::sync::atomic::Ordering::Relaxed);
+    while tokio::time::timeout(linger, left.as_mut()).await.is_err() {
+        let now = bytes.load(std::sync::atomic::Ordering::Relaxed);
+        if now == seen {
+            return;
+        }
+        seen = now;
+    }
+}
+
+/// Bytes from one side to the other until the end (Ok) or an error. Every piece is flushed: the outer TLS holds nothing
+/// back.
+async fn copy<A, B>(from: &mut A, to: &mut B, count: &std::sync::atomic::AtomicU64) -> std::io::Result<()>
+where
+    A: tokio::io::AsyncRead + Unpin,
+    B: tokio::io::AsyncWrite + Unpin,
+{
+    let mut buf = vec![0u8; 16 * 1024];
+    loop {
+        let n = match from.read(&mut buf).await {
+            Ok(0) => return Ok(()),
+            Ok(n) => n,
+            // the relay closed without the TLS goodbye: the end of the stream, like any other
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
+            Err(e) => return Err(e),
+        };
+        to.write_all(&buf[..n]).await?;
+        to.flush().await?;
+        count.fetch_add(n as u64, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 /// Where the volume check reads from through the tunnel: FiveM's own update storage (allowed on the relay). Since
@@ -468,6 +634,13 @@ pub struct Stats {
     pub refused: Vec<(&'static str, u64)>,
     /// The last connection that ended: host, bytes up, bytes down, how long (ms).
     pub last: Option<(String, u64, u64, u64)>,
+    /// 0.5.7: the longest connection (ms), and who ended them: FiveM, the other side, a break.
+    pub longest: u64,
+    pub by_program: u64,
+    pub by_server: u64,
+    pub broken: u64,
+    /// 0.5.7: how many times another relay took over.
+    pub switched: u64,
 }
 
 impl Stats {
@@ -475,6 +648,14 @@ impl Stats {
         match self.refused.iter_mut().find(|(w, _)| *w == why) {
             Some((_, n)) => *n += 1,
             None => self.refused.push((why, 1)),
+        }
+    }
+
+    fn ended(&mut self, by: &'static str) {
+        match by {
+            "program" => self.by_program += 1,
+            "server" => self.by_server += 1,
+            _ => self.broken += 1,
         }
     }
 
@@ -491,8 +672,20 @@ impl Stats {
             .as_ref()
             .map(|(h, u, d, ms)| format!("; последнее: {h}, {u}/{d} байт за {ms} мс"))
             .unwrap_or_default();
+        let ends = if self.by_program + self.by_server + self.broken == 0 {
+            String::new()
+        } else {
+            format!(
+                "; закончили: игра {}, сервер {}, обрыв {}, самое долгое {} с",
+                self.by_program,
+                self.by_server,
+                self.broken,
+                self.longest / 1000
+            )
+        };
+        let switched = if self.switched > 0 { format!("; смен релея {}", self.switched) } else { String::new() };
         format!(
-            "работа маршрута через {tunnel}: соединений {}, отправлено {} байт, получено {} байт{refused}{last}",
+            "работа маршрута через {tunnel}: соединений {}, отправлено {} байт, получено {} байт{ends}{switched}{refused}{last}",
             self.connections, self.up, self.down
         )
     }
@@ -654,7 +847,7 @@ pub(crate) mod tests {
             let tunnel = Tunnel { address: addr.clone(), sha256: hex(&fingerprint(CERT)) };
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let local = listener.local_addr().unwrap();
-            let fwd = Arc::new(Forward::new(tunnel.clone(), vec!["scui.rockstargames.com".into()]));
+            let fwd = Arc::new(Forward::new(vec![tunnel.clone()], vec!["scui.rockstargames.com".into()]));
             let serve_task = tokio::spawn(serve(listener, fwd));
 
             // our host: the bytes come back through the relay
@@ -684,6 +877,208 @@ pub(crate) mod tests {
         });
     }
 
+    /// (г) port 443 is taken: the second loopback address, then an error («порт 443 занят»).
+    #[test]
+    fn the_local_port_is_taken() {
+        let a = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let b = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let (taken1, taken2) = (a.local_addr().unwrap(), b.local_addr().unwrap());
+        let free = {
+            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            l.local_addr().unwrap()
+        };
+        assert_eq!(bind_first(&[taken1, free]).unwrap().0.local_addr().unwrap(), free);
+        assert!(bind_first(&[taken1, taken2]).is_err());
+        assert_eq!(LOCAL.map(|ip| ip.is_loopback()), [true, true]);
+        assert_eq!(PORT, 443);
+    }
+
+    /// 0.5.7: the relay stops answering: the next one takes over, nothing else changes.
+    #[test]
+    fn another_relay_takes_over() {
+        rt().block_on(async {
+            let (addr, relay_task) = relay(|mut tls| async move {
+                let mut buf = vec![0u8; 4096];
+                while let Ok(n) = tls.read(&mut buf).await {
+                    if n == 0 || tls.write_all(&buf[..n]).await.is_err() {
+                        break;
+                    }
+                }
+            })
+            .await;
+            let pin = hex(&fingerprint(CERT));
+            let dead = Tunnel { address: "127.0.0.1:1".into(), sha256: pin.clone() };
+            let live = Tunnel { address: addr.clone(), sha256: pin };
+            let fwd = Arc::new(Forward::new(vec![dead, live], vec!["rsg.sc".into()]));
+            assert_eq!(fwd.address(), "127.0.0.1:1");
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let local = listener.local_addr().unwrap();
+            let serve_task = tokio::spawn(serve(listener, fwd.clone()));
+            let mut c = TcpStream::connect(local).await.unwrap();
+            let hello = client_hello("rsg.sc");
+            c.write_all(&hello).await.unwrap();
+            let mut got = vec![0u8; hello.len()];
+            tokio::time::timeout(Duration::from_secs(10), c.read_exact(&mut got)).await.unwrap().unwrap();
+            assert_eq!(got, hello);
+            assert_eq!(fwd.address(), addr);
+            assert_eq!(fwd.stats().switched, 1);
+            // the check can also choose one that is in the list
+            fwd.prefer("127.0.0.1:1");
+            assert_eq!(fwd.address(), "127.0.0.1:1");
+            fwd.prefer("8.8.8.8:1");
+            assert_eq!(fwd.address(), "127.0.0.1:1");
+            serve_task.abort();
+            relay_task.abort();
+        });
+    }
+
+    /// 0.5.7: the handshake in pieces, and one whose name lies past 2 KB (the old limit).
+    #[test]
+    fn handshake_in_pieces_and_long() {
+        rt().block_on(async {
+            let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = l.local_addr().unwrap();
+            let hello = client_hello("scui.rockstargames.com");
+            // a padding extension of 6 KB before the name
+            let long = {
+                let name_at = hello.len() - ("scui.rockstargames.com".len() + 9);
+                let mut pad = vec![0x00, 0x15];
+                pad.extend_from_slice(&6000u16.to_be_bytes());
+                pad.extend_from_slice(&[0u8; 6000]);
+                let mut h = hello[..name_at].to_vec();
+                h.extend_from_slice(&pad);
+                h.extend_from_slice(&hello[name_at..]);
+                let grow = pad.len();
+                let rec = u16::from_be_bytes([h[3], h[4]]) as usize + grow;
+                h[3..5].copy_from_slice(&(rec as u16).to_be_bytes());
+                let hs = u32::from_be_bytes([0, h[6], h[7], h[8]]) as usize + grow;
+                h[6..9].copy_from_slice(&(hs as u32).to_be_bytes()[1..]);
+                let ext = u16::from_be_bytes([h[name_at - 2], h[name_at - 1]]) as usize + grow;
+                h[name_at - 2..name_at].copy_from_slice(&(ext as u16).to_be_bytes());
+                h
+            };
+            assert!(long.len() > 6000);
+            assert_eq!(sni_of(&long).as_deref(), Some("scui.rockstargames.com"));
+            assert_eq!(sni_of(&long[..2048]), None);
+            for bytes in [hello.clone(), long] {
+                let sender = tokio::spawn(async move {
+                    let mut c = TcpStream::connect(addr).await.unwrap();
+                    c.set_nodelay(true).unwrap();
+                    for piece in bytes.chunks(bytes.len() / 4 + 1) {
+                        c.write_all(piece).await.unwrap();
+                        tokio::time::sleep(Duration::from_millis(40)).await;
+                    }
+                    tokio::time::sleep(Duration::from_millis(300)).await;
+                });
+                let (conn, _) = l.accept().await.unwrap();
+                let name = tokio::time::timeout(HELLO_TIMEOUT, hello_name(&conn)).await.unwrap();
+                assert_eq!(name.as_deref(), Some("scui.rockstargames.com"));
+                sender.await.unwrap();
+            }
+            // not a handshake: refused at once
+            let mut c = TcpStream::connect(addr).await.unwrap();
+            c.write_all(b"GET / HTTP/1.1\r\n\r\n").await.unwrap();
+            let (conn, _) = l.accept().await.unwrap();
+            assert_eq!(tokio::time::timeout(Duration::from_secs(2), hello_name(&conn)).await.unwrap(), None);
+        });
+    }
+
+    /// 0.5.7: long connections. A quiet one stays open; a program that has finished sending still gets the whole answer
+    /// and only then does the relay hear the end (like nginx, which closes both directions on it); the other side's end
+    /// reaches the program at once.
+    #[test]
+    fn long_connections_and_half_closed_ones() {
+        rt().block_on(async {
+            let linger = Duration::from_millis(400);
+            // quiet for longer than `linger` with both sides open, then data both ways
+            let (mut app, local) = tokio::io::duplex(64 * 1024);
+            let (remote, mut server) = tokio::io::duplex(64 * 1024);
+            let task = tokio::spawn(shuttle(local, remote, linger));
+            tokio::time::sleep(linger * 3).await;
+            assert!(!task.is_finished());
+            app.write_all(b"ping").await.unwrap();
+            let mut four = [0u8; 4];
+            server.read_exact(&mut four).await.unwrap();
+            server.write_all(b"pong").await.unwrap();
+            app.read_exact(&mut four).await.unwrap();
+            assert_eq!(&four, b"pong");
+            // the program finishes sending; the answer comes slowly after that
+            app.shutdown().await.unwrap();
+            for _ in 0..4 {
+                tokio::time::sleep(linger / 2).await;
+                server.write_all(b"more").await.unwrap();
+                app.read_exact(&mut four).await.unwrap();
+                assert_eq!(&four, b"more");
+            }
+            drop(server);
+            let done = tokio::time::timeout(Duration::from_secs(5), task).await.unwrap().unwrap();
+            assert_eq!(done, Done { up: 4, down: 20, first: "program" });
+
+            // the program is gone and the other side says nothing: closed after `linger`
+            let (app, local) = tokio::io::duplex(1024);
+            let (remote, _server) = tokio::io::duplex(1024);
+            let task = tokio::spawn(shuttle(local, remote, linger));
+            drop(app);
+            let done = tokio::time::timeout(Duration::from_secs(5), task).await.unwrap().unwrap();
+            assert_eq!(done.first, "program");
+
+            // the other side ends: the program hears it at once
+            let (mut app, local) = tokio::io::duplex(1024);
+            let (remote, mut server) = tokio::io::duplex(1024);
+            let task = tokio::spawn(shuttle(local, remote, Duration::from_secs(30)));
+            server.write_all(b"bye").await.unwrap();
+            drop(server);
+            let mut all = Vec::new();
+            tokio::time::timeout(Duration::from_secs(5), app.read_to_end(&mut all)).await.unwrap().unwrap();
+            assert_eq!(all, b"bye");
+            app.write_all(b"too late").await.unwrap();
+            drop(app);
+            let done = tokio::time::timeout(Duration::from_secs(5), task).await.unwrap().unwrap();
+            assert_eq!((done.down, done.first), (3, "server"));
+        });
+    }
+
+    /// 0.5.7: through the whole chain (local TCP, TLS to the relay): the answer after the program's FIN is whole.
+    #[test]
+    fn answer_after_the_programs_fin_comes_through() {
+        rt().block_on(async {
+            let (addr, relay_task) = relay(|mut tls| async move {
+                let mut buf = vec![0u8; 4096];
+                let n = tls.read(&mut buf).await.unwrap_or(0);
+                // an answer of 300 KB in pieces, then the end; the relay gives up when it hears the end of the program
+                for _ in 0..30 {
+                    if tls.write_all(&vec![b'z'; 10 * 1024]).await.is_err() {
+                        return;
+                    }
+                    let _ = tls.flush().await;
+                    let mut one = [0u8; 1];
+                    if let Ok(Ok(0)) = tokio::time::timeout(Duration::from_millis(10), tls.read(&mut one)).await {
+                        return;
+                    }
+                }
+                let _ = (n, tls.shutdown().await);
+            })
+            .await;
+            let tunnel = Tunnel { address: addr, sha256: hex(&fingerprint(CERT)) };
+            let fwd = Arc::new(Forward::new(vec![tunnel], vec!["rsg.sc".into()]));
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let local = listener.local_addr().unwrap();
+            let serve_task = tokio::spawn(serve(listener, fwd.clone()));
+            let mut c = TcpStream::connect(local).await.unwrap();
+            c.write_all(&client_hello("rsg.sc")).await.unwrap();
+            c.shutdown().await.unwrap();
+            let mut all = Vec::new();
+            tokio::time::timeout(Duration::from_secs(15), c.read_to_end(&mut all)).await.unwrap().unwrap();
+            assert_eq!(all.len(), 300 * 1024);
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            let s = fwd.stats();
+            assert_eq!((s.connections, s.broken), (1, 0), "{s:?}");
+            assert!(s.line("x").contains("закончили: игра 1, сервер 0, обрыв 0"), "{}", s.line("x"));
+            serve_task.abort();
+            relay_task.abort();
+        });
+    }
+
     /// A real relay: `COLDZ_TUNNEL=177.3.198.34:8443 COLDZ_TUNNEL_SHA256=<64 hex> cargo test real_tunnel -- --ignored --nocapture`
     /// (relay/tunnel/README.md). Asks scui.rockstargames.com through it: Rockstar answers 403 to a bare HEAD.
     #[test]
@@ -708,7 +1103,7 @@ pub(crate) mod tests {
 
     /// A "real host" behind the mock relay that answers like Cfx.re: the heads with a manifest header, the manifest
     /// of `size` bytes, 403 to anything else.
-    async fn cfx_like(acc: tokio_rustls::TlsAcceptor, outer: tokio_rustls::server::TlsStream<TcpStream>, size: usize) {
+    pub async fn cfx_like(acc: tokio_rustls::TlsAcceptor, outer: tokio_rustls::server::TlsStream<TcpStream>, size: usize) {
         let Ok(mut inner) = acc.accept(outer).await else { return };
         let mut buf = vec![0u8; 2048];
         let n = inner.read(&mut buf).await.unwrap_or(0);

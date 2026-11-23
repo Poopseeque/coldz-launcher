@@ -83,6 +83,10 @@ struct Config {
     /// 0.4.0: built-in sign-in hosts and relay tunnels (signin.rs). A `signin` object in news.json wins.
     #[serde(default)]
     signin: signin::Setup,
+    /// 0.5.7 (netcheck.rs `answered_here`): how fast is too fast and where our addresses are. `proxyCheck` in news.json
+    /// wins.
+    #[serde(default)]
+    proxy_check: netcheck::ProxyCheck,
     max_players: u32,
     owner_email: String,
     fivem_download_url: String,
@@ -217,6 +221,17 @@ fn remote_signin() -> &'static RwLock<Option<signin::Setup>> {
     S.get_or_init(|| RwLock::new(None))
 }
 
+/// 0.5.7: `proxyCheck` from news.json. `None` = the key is missing: the built-in one.
+fn remote_proxy_check() -> &'static RwLock<Option<netcheck::ProxyCheck>> {
+    static P: OnceLock<RwLock<Option<netcheck::ProxyCheck>>> = OnceLock::new();
+    P.get_or_init(|| RwLock::new(None))
+}
+
+fn effective_proxy_check() -> netcheck::ProxyCheck {
+    let remote = remote_proxy_check().read().ok().and_then(|g| g.clone());
+    remote.unwrap_or_else(|| config().proxy_check.clone())
+}
+
 /// 0.5.4: `gameStorage` from news.json. `None` = the key is missing: the built-in table.
 fn remote_storage() -> &'static RwLock<Option<Vec<storage::Entry>>> {
     static S: OnceLock<RwLock<Option<Vec<storage::Entry>>>> = OnceLock::new();
@@ -277,6 +292,14 @@ fn apply_feed(v: &serde_json::Value) {
         .and_then(|s| serde_json::from_value::<signin::Setup>(s.clone()).ok());
     if let Ok(mut slot) = remote_signin().write() {
         *slot = signin;
+    }
+    // 0.5.7: `proxyCheck` (an object): missing or not an object = the built-in one
+    let proxy = v
+        .get("proxyCheck")
+        .filter(|p| p.is_object())
+        .and_then(|p| serde_json::from_value::<netcheck::ProxyCheck>(p.clone()).ok());
+    if let Ok(mut slot) = remote_proxy_check().write() {
+        *slot = proxy;
     }
     // 0.5.4: `gameStorage` (a list): missing or not a list = the built-in table
     let table = v
@@ -864,6 +887,18 @@ fn play(app: AppHandle) -> Result<PlayResult, String> {
     }
 }
 
+/// 0.5.7: what «Играть» would do with FiveM now (running.rs): "launch" | "passed" (it is open) | "starting" | "stuck". The
+/// sign-in through the COLDZ server is only for a FiveM about to start: an open one has signed in already.
+#[tauri::command]
+fn fivem_state() -> &'static str {
+    match running::decide(&running::state_of(&running::processes()), launched_recently()) {
+        running::Decision::Launch => "launch",
+        running::Decision::PassLink => "passed",
+        running::Decision::Starting => "starting",
+        running::Decision::Stuck => "stuck",
+    }
+}
+
 /// "Close FiveM" after fivem_stuck: ends every FiveM process. (closed, failed) — failed: FiveM runs as administrator.
 #[tauri::command]
 fn close_fivem() -> (u32, u32) {
@@ -1032,6 +1067,9 @@ async fn check_network(app: AppHandle) -> netcheck::Report {
     let (mut report, signin, pings) = tokio::join!(netcheck::run(server, control), signin_check(), route_pings());
     report.signin = signin;
     report.pings = pings;
+    // 0.5.7: can the results be believed, and what «Играть» does with them
+    report.proxy = !netcheck::answered_here(&report.pings, &effective_proxy_check()).is_empty();
+    report.plan = netcheck::plan(&report);
     if let Some(log) = net_log_path(&app) {
         let (title, lines) = netcheck::log_lines(&report);
         fivem::write_log(&log, &title, &lines);
@@ -1102,7 +1140,7 @@ async fn server_info() -> ServerInfo {
     ServerInfo { restart_in }
 }
 
-// ---------------------------------------------------------------- sign-in route (0.4.0, signin.rs)
+// ---------------------------------------------------------------- sign-in through the COLDZ server (0.4.0, signin.rs)
 
 /// What the launcher keeps about the route while it runs.
 #[derive(Default)]
@@ -1115,8 +1153,9 @@ struct SigninRun {
     active: bool,
     /// The tunnel that answered at the last check.
     tunnel_ok: Option<signin::Tunnel>,
-    /// Groups whose straight check failed at the last check (signin.rs `hosts_to_route`).
-    failed: Vec<String>,
+    /// 0.5.7: the elevated copy that stays and takes the block out itself (hosts.rs). None: there is none (the block was
+    /// taken over after a crash, or the prompt was confirmed by another Windows account).
+    helper: Option<hosts::Helper>,
 }
 
 fn signin_run() -> &'static std::sync::Mutex<SigninRun> {
@@ -1128,9 +1167,18 @@ fn signin_lock() -> std::sync::MutexGuard<'static, SigninRun> {
     signin_run().lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// The elevated copy (`--coldz-hosts <file>`, main.rs): writes the block and exits.
-pub fn hosts_main(file: &str) -> i32 {
-    hosts::apply(file)
+/// The elevated copy (`--coldz-hosts <file> [--coldz-watch <pid> <created> <name>]`, main.rs): writes the block; with
+/// `--coldz-watch` stays and takes it out again when the launcher is gone (hosts.rs).
+pub fn hosts_main(args: &[String]) -> i32 {
+    let Some(file) = args.first() else { return 2 };
+    match args.get(1).map(String::as_str) {
+        None => hosts::apply(file),
+        Some("--coldz-watch") => match hosts::Watch::parse(&args[2..]) {
+            Some(w) => hosts::guard(file, &w),
+            None => 2,
+        },
+        Some(_) => 2,
+    }
 }
 
 /// Runs the futures at once, answers in order (no extra crate for one join).
@@ -1164,19 +1212,60 @@ fn check_host(setup: &signin::Setup) -> Option<String> {
     reqwest::Url::parse(setup.groups.first()?.check.first()?).ok()?.host_str().map(str::to_string)
 }
 
+/// The addresses to ask, with the number of their group: all of them, or (the route is on) those whose host it carries; a
+/// group the route does not carry at all is asked as it is.
+fn checks_to_ask<'a>(setup: &'a signin::Setup, carried: Option<&[String]>) -> Vec<(usize, &'a String)> {
+    let mut out = Vec::new();
+    for (i, g) in setup.groups.iter().enumerate() {
+        let host_of = |url: &str| reqwest::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_string));
+        let ours: Vec<&String> = match carried {
+            Some(hosts) => g.check.iter().filter(|c| host_of(c).is_some_and(|h| hosts.contains(&h))).collect(),
+            None => Vec::new(),
+        };
+        let list: Vec<&String> = if ours.is_empty() { g.check.iter().collect() } else { ours };
+        out.extend(list.into_iter().map(|c| (i, c)));
+    }
+    out
+}
+
 /// For the window and the connection check: the sign-in hosts straight (through the route when it is on) and the
 /// first tunnel that answers. None: no groups set up.
 async fn signin_check() -> Option<netcheck::SigninReport> {
-    let setup = effective_signin();
-    let probe_host = check_host(&setup)?;
+    notice_lost_block();
+    signin_check_of(&effective_signin()).await
+}
+
+/// 0.5.7: the route is on, but the block is no longer in the hosts file (an antivirus put the file back): it is off then, and
+/// the elevated copy has nothing to guard.
+fn notice_lost_block() {
+    if !signin_lock().active || hosts::installed().is_some() {
+        return;
+    }
+    let helper = signin_lock().helper.take();
+    stop_forwarder();
+    signin_lock().active = false;
+    if let Some(h) = helper {
+        h.stop(Duration::ZERO);
+    }
+}
+
+async fn signin_check_of(setup: &signin::Setup) -> Option<netcheck::SigninReport> {
+    let probe_host = check_host(setup)?;
+    // 0.5.7: every address of every group at once (it was only the first of each). While the route is on, only the addresses
+    // it carries: the others say nothing about it (a block left by an older launcher may carry fewer).
+    let carried: Option<Vec<String>> = {
+        let run = signin_lock();
+        if run.active { run.forward.as_ref().map(|f| f.hosts.clone()) } else { None }
+    };
+    let asked: Vec<(usize, &String)> = checks_to_ask(setup, carried.as_deref());
     let groups = async {
-        let futs: Vec<_> = setup.groups.iter().map(|g| netcheck::probe_url(&g.check[0])).collect();
-        setup
-            .groups
-            .iter()
-            .zip(join_all(futs).await)
-            .map(|(g, p)| netcheck::GroupProbe { id: g.id.clone(), host: p.host, ok: p.ok, problem: p.problem, status: p.status, ms: p.ms })
-            .collect::<Vec<_>>()
+        let futs: Vec<_> = asked.iter().map(|(_, url)| netcheck::probe_url(url)).collect();
+        let answers = join_all(futs).await;
+        let mut of: Vec<Vec<netcheck::Probe>> = vec![Vec::new(); setup.groups.len()];
+        for ((i, _), p) in asked.iter().zip(answers) {
+            of[*i].push(p);
+        }
+        setup.groups.iter().zip(of).filter_map(|(g, checks)| netcheck::GroupProbe::of(&g.id, checks)).collect::<Vec<_>>()
     };
     let tunnels = async {
         if setup.tunnels.is_empty() {
@@ -1216,10 +1305,11 @@ async fn signin_check() -> Option<netcheck::SigninReport> {
     let route_stats = route_stats_line();
     {
         let mut run = signin_lock();
-        run.tunnel_ok = tunnel_ok;
-        if !active {
-            run.failed = failed.clone();
+        // 0.5.7: the route is on and the sign-in does not answer through it, but a relay carries data: use that one
+        if let (true, Some(f), Some(t)) = (active && !failed.is_empty(), run.forward.as_ref(), tunnel_ok.as_ref()) {
+            f.prefer(&t.address);
         }
+        run.tunnel_ok = tunnel_ok;
     }
     Some(netcheck::SigninReport { blocked: !failed.is_empty() && !active, groups, tunnel, tunnels: all_tunnels, route_stats, active })
 }
@@ -1232,6 +1322,8 @@ struct SigninStatus {
     ip: Option<String>,
     hosts: usize,
     tunnel: Option<String>,
+    /// 0.5.7: turning it off (and closing the launcher) asks Windows nothing: the elevated copy is there.
+    quiet_off: bool,
 }
 
 fn signin_status_now() -> SigninStatus {
@@ -1240,7 +1332,8 @@ fn signin_status_now() -> SigninStatus {
         active: run.active,
         ip: run.ip.map(|ip| ip.to_string()),
         hosts: run.forward.as_ref().map(|f| f.hosts.len()).unwrap_or(0),
-        tunnel: run.forward.as_ref().map(|f| f.tunnel.address.clone()),
+        tunnel: run.forward.as_ref().map(|f| f.address().to_string()),
+        quiet_off: run.helper.as_ref().is_some_and(|h| h.alive()),
     }
 }
 
@@ -1249,8 +1342,11 @@ fn signin_status() -> SigninStatus {
     signin_status_now()
 }
 
-/// Starts (or restarts) the local forwarder for `hosts` through `tunnel`. Returns the loopback address it listens on.
-fn start_forwarder(tunnel: signin::Tunnel, hosts: Vec<String>) -> Result<std::net::IpAddr, String> {
+/// Starts (or restarts) the local forwarder for `hosts` through `tunnel` (the other relays of `setup` stand by). Returns the
+/// loopback address it listens on.
+fn start_forwarder(setup: &signin::Setup, tunnel: signin::Tunnel, hosts: Vec<String>) -> Result<std::net::IpAddr, String> {
+    let mut tunnels = vec![tunnel];
+    tunnels.extend(setup.tunnels.iter().filter(|t| **t != tunnels[0]).cloned().collect::<Vec<_>>());
     let mut run = signin_lock();
     if let Some(t) = run.task.take() {
         t.abort();
@@ -1258,7 +1354,7 @@ fn start_forwarder(tunnel: signin::Tunnel, hosts: Vec<String>) -> Result<std::ne
     run.forward = None;
     let (std_listener, ip) = tunnel::bind_local().map_err(|_| "port_busy".to_string())?;
     let listener = tokio::net::TcpListener::from_std(std_listener).map_err(|_| "port_busy".to_string())?;
-    let forward = std::sync::Arc::new(tunnel::Forward::new(tunnel, hosts));
+    let forward = std::sync::Arc::new(tunnel::Forward::new(tunnels, hosts));
     run.forward = Some(forward.clone());
     run.ip = Some(ip);
     run.task = Some(tauri::async_runtime::spawn(tunnel::serve(listener, forward)));
@@ -1268,7 +1364,7 @@ fn start_forwarder(tunnel: signin::Tunnel, hosts: Vec<String>) -> Result<std::ne
 /// 0.5.0: what the running route carried (tunnel.rs `Stats`), one line for net-check.log. None: the route is off.
 fn route_stats_line() -> Option<String> {
     let run = signin_lock();
-    run.forward.as_ref().map(|f| f.stats().line(&f.tunnel.address))
+    run.forward.as_ref().map(|f| f.stats().line(f.address()))
 }
 
 fn stop_forwarder() {
@@ -1298,61 +1394,113 @@ async fn pick_tunnel(setup: &signin::Setup) -> Option<signin::Tunnel> {
     picked
 }
 
-/// «Включить резервный маршрут входа»: the forwarder, then the hosts block through the Windows prompt.
+/// The launcher's window for the Windows prompt (hosts.rs `start_elevated`): the prompt comes up in front of it.
+fn owner_window(app: &AppHandle) -> isize {
+    #[cfg(windows)]
+    if let Some(h) = app.get_webview_window("main").and_then(|w| w.hwnd().ok()) {
+        return h.0 as isize;
+    }
+    let _ = app;
+    0
+}
+
+/// The line about Windows asking stays on screen at least this long before Windows does.
+const PROMPT_NOTICE: Duration = Duration::from_millis(1800);
+const CONNECT_NOTICE: Duration = Duration::from_millis(1200);
+
+/// «Играть» when the sign-in hosts do not answer (netcheck.rs `plan` "via"): the forwarder, then the hosts block through one
+/// Windows prompt. `signin-step` tells the window where it is: "connect", then "prompt" right before Windows asks.
 /// Err: no_setup (no hosts or tunnels in news.json), no_route (no tunnel answers), port_busy (443 is taken on both
 /// loopback addresses), cancelled (the player said no to the prompt), failed.
 #[tauri::command]
 async fn signin_enable(app: AppHandle) -> Result<SigninStatus, String> {
+    if signin_lock().active {
+        return Ok(signin_status_now());
+    }
+    let shown = Instant::now();
+    let _ = app.emit("signin-step", "connect");
     let setup = effective_signin();
     if setup.groups.is_empty() || setup.tunnels.is_empty() {
         return Err("no_setup".into());
     }
     let tunnel = pick_tunnel(&setup).await.ok_or_else(|| "no_route".to_string())?;
-    let failed = signin_lock().failed.clone();
-    let hosts = signin::hosts_to_route(&setup, &failed);
-    let ip = start_forwarder(tunnel, hosts.clone())?;
+    // 0.5.7: every group, not only the one that failed (signin.rs `all_hosts`)
+    let hosts = signin::all_hosts(&setup);
+    let ip = start_forwarder(&setup, tunnel, hosts.clone())?;
+    tokio::time::sleep(CONNECT_NOTICE.saturating_sub(shown.elapsed())).await;
+    let _ = app.emit("signin-step", "prompt");
+    tokio::time::sleep(PROMPT_NOTICE).await;
     let block = signin::block(&ip.to_string(), &hosts);
     let work = signin_work_dir(&app);
-    let written = tauri::async_runtime::spawn_blocking(move || hosts::request(Some(&block), &work))
+    let owner = owner_window(&app);
+    let written = tauri::async_runtime::spawn_blocking(move || hosts::request_guarded(&block, &work, owner))
         .await
         .map_err(|_| "failed".to_string())?;
     match written {
-        Ok(()) => {
-            signin_lock().active = true;
+        Ok(helper) => {
+            let stays = helper.is_some();
+            {
+                let mut run = signin_lock();
+                run.active = true;
+                run.helper = helper;
+            }
             let _ = update_settings(&app, |s| s.signin_route = "on".into());
             if let Some(log) = net_log_path(&app) {
-                fivem::write_log(&log, &format!("резервный маршрут входа включён: {} хостов → {}", hosts.len(), ip), &hosts);
+                let how = if stays { "уберёт их сам при закрытии" } else { "при закрытии спросит Windows ещё раз" };
+                fivem::write_log(&log, &format!("резервный маршрут входа включён: {} хостов → {}; {how}", hosts.len(), ip), &hosts);
             }
             Ok(signin_status_now())
         }
-        Err(hosts::Refused::Cancelled) => {
+        Err(e) => {
             stop_forwarder();
-            Err("cancelled".into())
-        }
-        Err(hosts::Refused::Failed) => {
-            stop_forwarder();
-            Err("failed".into())
+            if let Some(log) = net_log_path(&app) {
+                fivem::write_log(&log, &format!("резервный маршрут входа не включён: {e:?}"), &[]);
+            }
+            Err(if e == hosts::Refused::Cancelled { "cancelled" } else { "failed" }.into())
         }
     }
 }
 
-/// «Выключить резервный маршрут входа» and the launcher's exit: the block out of the hosts file (one prompt), then
-/// the forwarder stops. The player says no: the block stays and so does the forwarder (Err("cancelled")).
+/// Takes the block out of the hosts file: the elevated copy does it without a prompt while it is there; otherwise one more
+/// Windows prompt (`ask`; false: leave it). Blocks: call it from a blocking task or at the exit.
+fn release_block(app: &AppHandle, ask: bool) -> Result<(), hosts::Refused> {
+    let helper = signin_lock().helper.take();
+    if let Some(h) = helper {
+        if h.stop(Duration::from_secs(12)) && hosts::installed().is_none() {
+            return Ok(());
+        }
+    }
+    if hosts::installed().is_none() {
+        return Ok(());
+    }
+    if !ask {
+        return Err(hosts::Refused::Cancelled);
+    }
+    hosts::request(None, &signin_work_dir(app), owner_window(app))
+}
+
+/// The block is out: the forwarder stops, the settings and the log know.
+fn signin_is_off(app: &AppHandle, why: &str) {
+    let stats = route_stats_line();
+    stop_forwarder();
+    signin_lock().active = false;
+    let _ = update_settings(app, |s| s.signin_route = "off".into());
+    if let Some(log) = net_log_path(app) {
+        fivem::write_log(&log, why, &stats.into_iter().collect::<Vec<_>>());
+    }
+}
+
+/// «Выключить» in the connection card. The player says no to the prompt (when there is one): the block stays and so does the
+/// forwarder (Err("cancelled")).
 #[tauri::command]
 async fn signin_disable(app: AppHandle) -> Result<SigninStatus, String> {
-    let work = signin_work_dir(&app);
-    let removed = tauri::async_runtime::spawn_blocking(move || hosts::request(None, &work))
+    let handle = app.clone();
+    let removed = tauri::async_runtime::spawn_blocking(move || release_block(&handle, true))
         .await
         .map_err(|_| "failed".to_string())?;
     match removed {
         Ok(()) => {
-            let stats = route_stats_line();
-            stop_forwarder();
-            signin_lock().active = false;
-            let _ = update_settings(&app, |s| s.signin_route = "off".into());
-            if let Some(log) = net_log_path(&app) {
-                fivem::write_log(&log, "резервный маршрут входа выключен", &stats.into_iter().collect::<Vec<_>>());
-            }
+            signin_is_off(&app, "резервный маршрут входа выключен");
             Ok(signin_status_now())
         }
         Err(hosts::Refused::Cancelled) => Err("cancelled".into()),
@@ -1366,31 +1514,41 @@ fn signin_cleanup(app: &AppHandle) {
     if !active && hosts::installed().is_none() {
         return;
     }
-    let work = signin_work_dir(app);
-    let stats = route_stats_line();
-    if hosts::request(None, &work).is_ok() {
-        if let (Some(log), Some(line)) = (net_log_path(app), stats) {
-            fivem::write_log(&log, "резервный маршрут входа выключен при выходе", &[line]);
-        }
-        stop_forwarder();
-        signin_lock().active = false;
-        let _ = update_settings(app, |s| s.signin_route = "off".into());
+    if release_block(app, true).is_ok() {
+        signin_is_off(app, "резервный маршрут входа выключен при выходе");
     }
 }
 
-/// At the launcher's start: a block left in the hosts file (a crash, or the player said no to the removal) with
+/// Before an update is installed: the elevated copy runs from the same exe and would keep the installer from replacing it.
+fn signin_before_update(app: &AppHandle) {
+    let has_helper = { signin_lock().helper.is_some() };
+    if has_helper && release_block(app, false).is_ok() {
+        signin_is_off(app, "резервный маршрут входа выключен перед обновлением");
+    }
+}
+
+/// At the launcher's start: a block left in the hosts file (a power cut, or the elevated copy was killed) with
 /// the route "on" in settings.json is taken over without a prompt when the forwarder can listen on the same
-/// address and a tunnel answers; otherwise the block is removed (one prompt), so the sign-in hosts never point at
-/// a port nobody listens on.
+/// address and a tunnel answers; otherwise the block is removed (one prompt, the window says why first), so the sign-in
+/// hosts never point at a port nobody listens on.
 async fn signin_resume(app: AppHandle) {
-    let Some((ip, hosts)) = hosts::installed() else { return };
+    // 0.5.7: after a crash the elevated copy of the last run may be just taking the block out
+    if hosts::installed().is_some() {
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+    }
     let wanted_on = settings_path(&app).map(|p| nick::load(&p).signin_route == "on").unwrap_or(false);
+    let Some((ip, hosts)) = hosts::installed() else {
+        if wanted_on {
+            let _ = update_settings(&app, |s| s.signin_route = "off".into());
+        }
+        return;
+    };
     let setup = effective_signin();
     let same_ip = ip.parse::<std::net::IpAddr>().ok();
     if wanted_on && !hosts.is_empty() {
         if let Some(t) = pick_tunnel(&setup).await {
             // the forwarder takes the first free loopback address; it must be the one the block names
-            if let Ok(bound) = start_forwarder(t, hosts.clone()) {
+            if let Ok(bound) = start_forwarder(&setup, t, hosts.clone()) {
                 if Some(bound) == same_ip {
                     signin_lock().active = true;
                     if let Some(log) = net_log_path(&app) {
@@ -1406,8 +1564,14 @@ async fn signin_resume(app: AppHandle) {
             }
         }
     }
+    // 0.5.7: the window (it needs a moment to come up) says what Windows is about to ask
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let _ = app.emit("signin-step", "cleanup");
+    tokio::time::sleep(PROMPT_NOTICE + CONNECT_NOTICE).await;
     let work = signin_work_dir(&app);
-    let removed = tauri::async_runtime::spawn_blocking(move || hosts::request(None, &work)).await;
+    let owner = owner_window(&app);
+    let removed = tauri::async_runtime::spawn_blocking(move || hosts::request(None, &work, owner)).await;
+    let _ = app.emit("signin-step", "done");
     if matches!(removed, Ok(Ok(()))) {
         let _ = update_settings(&app, |s| s.signin_route = "off".into());
         if let Some(log) = net_log_path(&app) {
@@ -1746,7 +1910,7 @@ async fn support_create(app: AppHandle, with_dump: bool) -> Result<SupportDone, 
         let extra = vec![
             format!("Ник в лаунчере: {}", if s.nick.is_empty() { "(из FiveM)" } else { &s.nick }),
             format!("Маршрут к серверу: {}", if s.last_route.is_empty() { "-" } else { &s.last_route }),
-            format!("Резервный маршрут входа: {}", if route_on { "включён" } else { "выключен" }),
+            format!("Вход через сервер COLDZ: {}", if route_on { "включён" } else { "выключен" }),
             format!("FiveM.exe указан вручную: {}", if s.fivem_path.is_empty() { "нет" } else { "да" }),
         ];
         let system = support::system_text(&version, &facts, hint.as_ref(), &dumps, &extra);
@@ -1868,6 +2032,8 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
     let ready = ready_lock(&app).take();
     if let Some((update, bytes)) = ready {
         let _ = app.emit("update-progress", 100u64);
+        let handle = app.clone();
+        let _ = tauri::async_runtime::spawn_blocking(move || signin_before_update(&handle)).await;
         update.install(&bytes).map_err(|e| e.to_string())?;
         app.restart();
     }
@@ -1875,7 +2041,7 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
         return Err("no_update".into());
     };
     let mut done: u64 = 0;
-    let handle = app.clone();
+    let (handle, before) = (app.clone(), app.clone());
     update
         .download_and_install(
             move |chunk, total| {
@@ -1884,7 +2050,8 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
                     let _ = handle.emit("update-progress", (done * 100 / t).min(100));
                 }
             },
-            || {},
+            // downloaded, the installer starts next
+            move || signin_before_update(&before),
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -2096,6 +2263,7 @@ pub fn run() {
             set_tray,
             minimize_window,
             install_update,
+            fivem_state,
             signin_status,
             signin_enable,
             signin_disable,
@@ -2328,6 +2496,224 @@ mod tests {
         for key in ["cancelled", "network", "remote", "bad", "space", "disk"] {
             assert!(app.contains(&format!("{key}: \"storage_")), "{key}");
         }
+    }
+
+    /// 0.5.7 (Alexander 23.11): «Играть» decides by itself, the window asks nothing; one button in the card; the words.
+    #[test]
+    fn no_questions_in_the_window() {
+        let i18n = include_str!("../../ui/i18n.js");
+        let app = include_str!("../../ui/app.js");
+        let html = include_str!("../../ui/index.html");
+        // every text of the window: (key, text)
+        let texts: Vec<(&str, &str)> = i18n
+            .lines()
+            .filter_map(|l| l.strip_prefix("    "))
+            .filter_map(|l| l.split_once(": \""))
+            .filter(|(k, _)| k.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_'))
+            .collect();
+        assert!(texts.len() > 400, "{}", texts.len());
+        let count = |key: &str| texts.iter().filter(|(k, _)| *k == key).count();
+
+        // the old buttons and their texts are gone
+        for key in ["signin_on", "signin_off", "signin_working", "net_signin", "net_signin_short", "net_signin_note", "svc_signin_route", "net_retry", "play_anyway"] {
+            assert_eq!(count(key), 0, "{key}");
+            assert!(!app.contains(&format!("\"{key}\"")) && !html.contains(&format!("\"{key}\"")), "{key}");
+        }
+        for id in ["btn-net-signin", "btn-net-play", "btn-net-recheck"] {
+            assert!(!html.contains(id) && !app.contains(id), "{id}");
+        }
+        // one main button and «Закрыть»; the list is closed until «Подробнее»
+        let card = &html[html.find("id=\"net\"").unwrap()..html.find("id=\"restart\"").unwrap()];
+        assert_eq!(card.matches("class=\"btn").count(), 2, "{card}");
+        assert_eq!(card.matches("btn--accent").count(), 1);
+        assert!(card.contains("<div id=\"net-more\" hidden>") && card.find("net-more").unwrap() < card.find("net-list").unwrap());
+        assert!(card.contains("id=\"btn-net-without\" hidden"));
+
+        // the new texts, on 4 languages; every key the page asks for exists
+        let new = [
+            "via_button", "via_connect", "via_prompt", "via_cleanup", "launched_via", "via_cancelled", "via_port_busy", "via_failed",
+            "via_no_route", "via_bad", "net_via", "net_via_short", "net_via_on", "net_noroute_short", "net_proxy", "net_proxy_short",
+            "net_details_hide", "net_recheck", "try_again", "play_without", "play_now", "svc_via", "via_note", "via_off", "via_stopping",
+            "via_off_failed", "via_stopping_ask",
+        ];
+        for key in new {
+            assert_eq!(count(key), 4, "{key}");
+            assert!(app.contains(key) || html.contains(key) || key.starts_with("via_"), "{key} is used");
+        }
+        for part in html.split("data-i18n").skip(1) {
+            let key = part.split('"').nth(1).unwrap();
+            assert_eq!(count(key), 4, "{key} in index.html");
+        }
+        // the words: the sign-in is «Вход в FiveM», no company name, no routes and relays, no long dashes
+        for (key, text) in &texts {
+            assert!(!text.contains("Rockstar"), "{key}: {text}");
+            assert!(!text.contains('—'), "{key}: {text}");
+            let low = text.to_lowercase();
+            for word in low.split(|c: char| !c.is_alphabetic()) {
+                assert!(!["route", "routes", "relay", "ruta", "rutas", "rota", "rotas"].contains(&word), "{key}: {text}");
+            }
+            assert!(!low.contains("маршрут") && !low.contains("релей") && !low.contains("обход"), "{key}: {text}");
+            // VPN: only in the connection card (docs/ПРАВИЛА.md)
+            assert_eq!(low.contains("vpn"), ["via_no_route", "net_proxy"].contains(key), "{key}: {text}");
+            assert!(!low.contains("http"), "{key}: {text}");
+        }
+        // the required line of the FiveM license stays
+        assert!(html.contains("COLDZ IS NOT APPROVED, SPONSORED, OR ENDORSED BY ROCKSTAR GAMES."));
+
+        // «Играть»: the check, then (by itself) the sign-in through the COLDZ server, then FiveM
+        let at = |what: &str| app.find(what).unwrap_or_else(|| panic!("{what}"));
+        assert!(at("netRes.plan === \"via\"") < at("const error = await connectVia();"));
+        assert!(at("const error = await connectVia();") < at("await invoke(\"play\")"));
+        assert!(at("invoke(\"fivem_state\")") < at("const error = await connectVia();"));
+        // every answer of signin_enable and every plan has its text; every step of `signin-step` its line
+        for code in ["cancelled", "port_busy", "no_route", "no_setup"] {
+            assert!(app.contains(&format!("{code}: \"via_")), "{code}");
+        }
+        for plan in ["offline", "server", "cfx", "noroute", "via_bad", "proxy", "via"] {
+            assert!(app.contains(&format!("{plan}: \"")), "{plan}");
+        }
+        for step in ["connect", "prompt", "cleanup"] {
+            assert_eq!(count(&format!("via_{step}")), 4, "{step}");
+        }
+    }
+
+    /// 0.5.7: (б) and (д) of the brief with fakes: the sign-in hosts do not answer (nobody listens), the relay is a real TLS
+    /// relay with the pinned test certificate, alive or dead.
+    #[test]
+    fn sign_in_check_with_fakes() {
+        tunnel::tests::rt().block_on(async {
+            let closed = {
+                let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+                l.local_addr().unwrap().port()
+            };
+            let acc = tunnel::tests::acceptor();
+            let (relay, task) = tunnel::tests::relay(move |outer| tunnel::tests::cfx_like(acc.clone(), outer, 70 * 1024)).await;
+            let pin = tunnel::tests::hex(&tunnel::fingerprint(tunnel::tests::CERT));
+            let setup = |relays: Vec<String>| {
+                signin::clean(&signin::Setup {
+                    groups: vec![signin::Group {
+                        id: "rockstar".into(),
+                        check: vec![format!("https://127.0.0.1:{closed}/")],
+                        hosts: vec!["scui.rockstargames.com".into()],
+                    }],
+                    tunnels: relays.into_iter().map(|address| signin::Tunnel { address, sha256: pin.clone() }).collect(),
+                })
+            };
+            let report = |s: Option<netcheck::SigninReport>| {
+                let mut r = netcheck::Report {
+                    verdict: "ok",
+                    blocking: false,
+                    services: vec![],
+                    server: Some(true),
+                    reserve: Some(true),
+                    route: Some("main"),
+                    signin: s,
+                    pings: vec![],
+                    proxy: false,
+                    plan: "",
+                    ms: 1,
+                };
+                r.plan = netcheck::plan(&r);
+                r
+            };
+            // (б) the first relay is dead, the second one carries data: «Играть» goes through it
+            let both = setup(vec!["127.0.0.1:1".into(), relay.clone()]);
+            let r = report(signin_check_of(&both).await);
+            let s = r.signin.as_ref().unwrap();
+            assert!(s.blocked && !s.active, "{s:?}");
+            assert_eq!((s.tunnel.as_ref().map(|t| (t.ok, t.index)), r.plan), (Some((true, 2)), "via"), "{s:?}");
+            assert_eq!(pick_tunnel(&both).await.map(|t| t.address), Some(relay));
+            // 0.5.7: any address of any group: the first one answers, the second does not (the case of 23.11: the sign-in answers,
+            // a service after it does not); the addresses of these fakes are plain http, so they skip `clean`
+            use netcheck::tests::{fake, Fake};
+            let url = |port: u16| format!("http://127.0.0.1:{port}/");
+            let group = |id: &str, ports: &[u16]| signin::Group {
+                id: id.into(),
+                check: ports.iter().map(|p| url(*p)).collect(),
+                hosts: vec![format!("{id}.example")],
+            };
+            let tunnels = both.tunnels.clone();
+            let ask = |groups: Vec<signin::Group>| {
+                let s = signin::Setup { groups, tunnels: tunnels.clone() };
+                async move { (signin_check_of(&s).await.unwrap(), s) }
+            };
+            let (small, big) = (fake(Fake::Answer(403, 1233)).await, fake(Fake::Answer(200, 300_000)).await);
+            let (s, _) = ask(vec![group("rockstar", &[small, small]), group("cfx", &[small, big])]).await;
+            assert!(!s.blocked, "{s:?}");
+            // of a big answer no more than 64 KB (and the piece it ends in) is read
+            let read = s.groups[1].checks[1].bytes;
+            assert!(read >= netcheck::VOLUME_BYTES && read < 300_000, "{read}");
+            let (s, _) = ask(vec![group("rockstar", &[small, small, closed]), group("cfx", &[small])]).await;
+            assert!(s.blocked, "{s:?}");
+            assert_eq!(s.groups.iter().map(|g| g.ok).collect::<Vec<_>>(), [false, true]);
+            // «only Cfx is cut»: the second group alone, by its second address
+            let (s, setup2) = ask(vec![group("rockstar", &[small]), group("cfx", &[small, closed])]).await;
+            assert_eq!((s.blocked, s.groups[0].ok, s.groups[1].ok), (true, true, false), "{s:?}");
+            assert_eq!(report(Some(s)).plan, "via");
+            // ... and then every host of both groups goes through the COLDZ server
+            assert_eq!(signin::all_hosts(&setup2), ["rockstar.example", "cfx.example"]);
+            // the «16 KB» cut: a big answer stops after 16 KB
+            let cut16 = fake(Fake::Stall(99_000, 16 * 1024)).await;
+            let (s, _) = ask(vec![group("rockstar", &[small, cut16])]).await;
+            assert_eq!((s.blocked, s.groups[0].problem, s.groups[0].checks[1].bytes), (true, Some("slow"), 16 * 1024), "{s:?}");
+
+            // (д) nobody answers
+            task.abort();
+            let dead = setup(vec!["127.0.0.1:1".into()]);
+            let r = report(signin_check_of(&dead).await);
+            assert_eq!(r.plan, "noroute", "{:?}", r.signin);
+            assert_eq!(pick_tunnel(&dead).await, None);
+            // no setup at all: nothing is asked
+            assert!(signin_check_of(&signin::Setup::default()).await.is_none());
+        });
+    }
+
+    /// 0.5.7: while the route is on, only what it carries is asked through it.
+    #[test]
+    fn checks_while_the_route_is_on() {
+        let setup = config().signin.clone();
+        let all: usize = setup.groups.iter().map(|g| g.check.len()).sum();
+        assert_eq!(checks_to_ask(&setup, None).len(), all);
+        assert_eq!(checks_to_ask(&setup, Some(&signin::all_hosts(&setup))).len(), all, "every check host is in its group's hosts");
+        // a block of an older launcher: only the Rockstar sign-in page
+        let old = checks_to_ask(&setup, Some(&["scui.rockstargames.com".to_string()]));
+        let rockstar: Vec<&str> = old.iter().filter(|(i, _)| *i == 0).map(|(_, u)| u.as_str()).collect();
+        assert_eq!(rockstar, ["https://scui.rockstargames.com/"]);
+        assert_eq!(old.iter().filter(|(i, _)| *i == 1).count(), setup.groups[1].check.len());
+        // the two groups of 0.5.7 stay in the built-in config (Alexander 23.11: news.json gets them back with the release)
+        assert_eq!(setup.groups.iter().map(|g| g.id.as_str()).collect::<Vec<_>>(), ["rockstar", "cfx"]);
+        assert_eq!(signin::clean(&setup), setup, "nothing in the built-in setup is dropped");
+    }
+
+    /// 0.5.7: what the elevated copy accepts on its command line (the rest: hosts.rs).
+    #[test]
+    fn elevated_copy_arguments() {
+        let run = |list: &[&str]| hosts_main(&list.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        let missing = "C:\\coldz-no-such-file.txt";
+        assert_eq!(run(&[]), 2);
+        assert_eq!(run(&[missing]), 2);
+        assert_eq!(run(&[missing, "--something"]), 2);
+        assert_eq!(run(&[missing, "--coldz-watch"]), 2);
+        assert_eq!(run(&[missing, "--coldz-watch", "4242424", "1", "0123456789abcdef0123456789abcdef"]), 2);
+        assert_eq!(run(&[missing, "--coldz-watch", "x", "1", "0123456789abcdef0123456789abcdef"]), 2);
+    }
+
+    /// 0.5.7: `proxyCheck`: built in, and from news.json.
+    #[test]
+    fn proxy_check_in_the_config() {
+        let built_in = &config().proxy_check;
+        assert_eq!((built_in.max_ms, built_in.min_places), (3, 2));
+        let places: std::collections::BTreeSet<&String> = built_in.places.values().collect();
+        assert!(places.len() >= 2);
+        // the addresses are the ones the launcher pings: the main server and the reserve routes of news.json
+        let news: serde_json::Value = serde_json::from_str(include_str!("../../news/news.json")).unwrap();
+        let mut ours: Vec<String> = vec![news["serverAddress"].as_str().unwrap().to_string()];
+        ours.extend(config().relays.iter().cloned());
+        for a in &ours {
+            assert!(built_in.places.contains_key(a), "{a}");
+        }
+        let other: netcheck::ProxyCheck = serde_json::from_value(serde_json::json!({ "maxMs": 0 })).unwrap();
+        assert_eq!((other.max_ms, other.places.len()), (0, 0));
     }
 
     #[test]
