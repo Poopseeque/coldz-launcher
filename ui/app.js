@@ -23,6 +23,11 @@
   let tab = "news";
   let serverInfo = null;     // 0.5.0: { restartIn, at } (server_info, once a minute); 0.5.3: online graph removed
   const INFO_EVERY_MS = 60000;
+  // 0.5.8: the launcher lives in the tray for days; news and launcher updates were asked only at the start, so a tray copy
+  // never saw a new release. Asked again by themselves and when the window is opened.
+  const NEWS_EVERY_MS = 30 * 60 * 1000;
+  const NEWS_ON_FOCUS_MS = 10 * 60 * 1000;
+  const UPDATE_EVERY_MS = 3 * 60 * 60 * 1000;
   const RESTART_WARN_S = 120;  // «Играть» asks this long before the restart
   let crashHint = null;      // 0.5.0: { key, detail, gb, at } after a fresh FiveM crash (src-tauri/src/support.rs)
 
@@ -911,13 +916,16 @@
     renderNews();
   }
 
+  let newsAt = 0;
+  let updateAt = 0;
   async function loadNews() {
+    newsAt = Date.now();
     try {
       const res = await invoke("fetch_news");
       newsData = res.data;
       newsSource = res.source;
     } catch {
-      newsData = { items: [] };
+      newsData = newsData || { items: [] };
     }
     renderNews();
     renderRules();
@@ -925,6 +933,7 @@
 
   // ------------------------------------------------------------ updates
   async function checkUpdate() {
+    updateAt = Date.now();
     try {
       const upd = await invoke("check_update");
       if (!upd) return;
@@ -945,6 +954,13 @@
     if (!updateVersion || $("btn-update").disabled) return;
     $("update-text").textContent = t(portable ? "update_portable" : updateReady ? "update_ready" : "update_available", { v: updateVersion });
     $("btn-update").textContent = t(portable ? "update_download" : "update_install");
+  }
+
+  // 0.5.8: again every NEWS_EVERY_MS and UPDATE_EVERY_MS; `fresh` — the window was just opened: sooner
+  function refreshFeed(fresh) {
+    const now = Date.now();
+    if (now - newsAt >= (fresh ? NEWS_ON_FOCUS_MS : NEWS_EVERY_MS)) loadNews().then(() => { refreshStatus(); refreshInfo(); });
+    if (!updateVersion && now - updateAt >= (fresh ? NEWS_EVERY_MS : UPDATE_EVERY_MS)) checkUpdate();
   }
 
   async function installUpdate() {
@@ -1079,12 +1095,13 @@
     setInterval(refreshStatus, STATUS_EVERY_MS);
     setInterval(refreshInfo, INFO_EVERY_MS);
     setInterval(renderRestart, 15000);
+    setInterval(() => refreshFeed(false), 60000);
     setInterval(() => { if (!fivemInstalled && document.hasFocus()) refreshFivem(); }, FIVEM_POLL_MS);
 
     // Endless animations pause while the window is not active (e.g. during the game).
     const setIdle = (idle) => document.body.classList.toggle("idle", idle);
     setIdle(!document.hasFocus());
-    window.addEventListener("focus", () => { setIdle(false); refreshFivem(); refreshStatus(); });
+    window.addEventListener("focus", () => { setIdle(false); refreshFivem(); refreshStatus(); refreshFeed(true); });
     window.addEventListener("blur", () => setIdle(true));
   }
 

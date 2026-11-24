@@ -667,14 +667,34 @@ pub fn write_link_handler(class: &str, exe: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Makes sure a fivem:// link opened by explorer.exe starts FiveM: a working handler stays as it is; a missing or
-/// broken one is pointed at `exe`. Returns whether explorer can be used and lines for fivem-search.log (empty when
-/// the handler already worked).
+/// Do these two paths lead to the same file? Canonical paths when both resolve, else a case-insensitive comparison
+/// (Windows paths differ in case, short 8.3 names and trailing separators for one and the same file).
+pub fn same_exe(a: &Path, b: &Path) -> bool {
+    match (a.canonicalize(), b.canonicalize()) {
+        (Ok(x), Ok(y)) => x == y,
+        _ => a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase(),
+    }
+}
+
+/// Makes sure a fivem:// link opened by explorer.exe starts OUR FiveM: a handler pointing at the very FiveM.exe the
+/// launcher found stays as it is; a missing, broken or FOREIGN one is pointed at `exe`. Returns whether explorer can
+/// be used and lines for fivem-search.log (empty when the handler already pointed at `exe`).
+///
+/// 24.11.2026: a working handler is not enough. Another project's launcher registers its own fivem:// handler, and
+/// players reported that our «Играть» put them on THAT project's server: explorer opened our
+/// fivem://connect/<our address> with their client, which ignores the address and joins its own server. The handler is
+/// a single registry entry shared by every FiveM-based project, so the last installer wins. Trust it only when it
+/// points at the FiveM.exe we are about to start.
 #[cfg(windows)]
 pub fn ensure_link_handler(exe: &Path) -> (bool, Vec<String>) {
     let (class, cmd) = read_link_handler();
     let was = match link_handler(cmd.as_deref()) {
-        LinkHandler::Works(_) => return (true, Vec::new()),
+        LinkHandler::Works(p) if same_exe(&p, exe) => return (true, Vec::new()),
+        LinkHandler::Works(p) => format!(
+            "ссылка fivem:// ({class}): обработчик {} -> чужой клиент, а не {}",
+            p.display(),
+            exe.display()
+        ),
         LinkHandler::Missing => format!("ссылка fivem:// ({class}): обработчика нет"),
         LinkHandler::Broken(c) => format!("ссылка fivem:// ({class}): обработчик {c} -> файла нет"),
     };
