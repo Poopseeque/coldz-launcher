@@ -156,6 +156,23 @@
       }
     },
     {
+      "id": "launcher-0.5.7",
+      "date": "2026-11-24",
+      "pinned": false,
+      "title": {
+        "ru": "Лаунчер 0.5.7",
+        "en": "Launcher 0.5.7",
+        "es": "Lanzador 0.5.7",
+        "pt-BR": "Launcher 0.5.7"
+      },
+      "body": {
+        "ru": "«Играть» теперь всё решает сама: если вход в FiveM у провайдера не отвечает, лаунчер без вопросов подключает через сервер COLDZ. Windows спросит разрешение один раз: нажмите «Да». Лаунчер обновится сам.",
+        "en": "Play now decides everything by itself: if the FiveM sign-in does not answer at your provider, the launcher connects through the COLDZ server without any questions. Windows asks for permission once: press \"Yes\". The launcher updates itself.",
+        "es": "Jugar ahora lo decide todo solo: si el inicio de sesión de FiveM no responde con tu proveedor, el lanzador conecta por el servidor COLDZ sin preguntas. Windows pide permiso una vez: pulsa «Sí». El lanzador se actualiza solo.",
+        "pt-BR": "Jogar agora decide tudo sozinho: se o login do FiveM não responde no seu provedor, o launcher conecta pelo servidor COLDZ sem perguntas. O Windows pede permissão uma vez: clique em «Sim». O launcher se atualiza sozinho."
+      }
+    },
+    {
       "id": "update-2026-11-23-alpha57",
       "date": "2026-11-23",
       "pinned": false,
@@ -571,5 +588,5 @@
       }
     }
   ],
-  "signedAt": "2026-11-24T07:54:25Z"
+  "signedAt": "2026-11-24T12:55:39Z"
 }
