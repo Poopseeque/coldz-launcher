@@ -139,9 +139,26 @@
   ],
   "items": [
     {
-      "id": "update-2026-11-24-alpha60",
+      "id": "update-2026-11-24-alpha601",
       "date": "2026-11-24",
       "pinned": true,
+      "title": {
+        "ru": "ALPHA 6.0.1: Медведь-шатун",
+        "en": "ALPHA 6.0.1: The Rogue Bear",
+        "es": "ALPHA 6.0.1: El oso errante",
+        "pt-BR": "ALPHA 6.0.1: O urso errante"
+      },
+      "body": {
+        "ru": "ALPHA 6.0.1 «Медведь-шатун» на сервере.\n\nМедведь-шатун\n• Раз в 5 часов в логове появляется медведь-шатун. Логово всегда отмечено на карте, в чате у всех красная строка.\n• Крупный, быстрый и умный: обходит машины, таранит их, кружит и заходит сбоку. Машина не спасёт.\n• Босс для одиночек или двоек. Патронов берите много, крупный калибр берёт его заметно быстрее. Из машины и издалека его не взять.\n• Добыча внутри туши, откройте её клавишей лута: сырое мясо, медицина, патроны, тяжёлый ствол. Иногда красная карта.\n\nНавыки\n• Меню навыков теперь в F2, клавиша M свободна. Значки званий нарисованы заново.\n• Опыт за зомби: сверх 80 убитых за час платят меньше.\n\nОружие и лут\n• Милкор перезаряжается весь барабан за 3 секунды.\n• Стволы в точках: чем сильнее, тем реже, слабые попадаются чаще. Полных канистр вдвое меньше.\n• Последний патрон магазина засчитывается всегда.\n\nМир\n• Зона 51: убитые зомби и патрули возвращаются через 40 минут.\n• Работы деревни: в начале кадры дольше, чтобы успеть прочитать.\n\nИсправлено\n• Ложные «подключение пропало» в чате, проваливание у стремянки арены, ледокол (было видно сквозь борт), набор для починки оружия.",
+        "en": "ALPHA 6.0.1 \"The Rogue Bear\" is live.\n\nThe rogue bear\n• Every 5 hours the rogue bear appears in its lair. The lair is always marked on the map, and everyone gets a red line in chat.\n• Huge, fast and smart: it goes around cars, rams them, circles and comes from the side. A car will not save you.\n• A boss for solo players or pairs. Bring a lot of ammo, large calibers work noticeably faster. You cannot kill it from a car or from afar.\n• The loot is inside the carcass, open it with the loot key: raw meat, medicine, ammo, a heavy gun. Sometimes a red card.\n\nSkills\n• The skills menu is in F2 now, the M key is free. Rank badges were redrawn.\n• Zombie experience: above 80 kills per hour pays less.\n\nWeapons and loot\n• The Milkor reloads the whole drum in 3 seconds.\n• Guns in loot spots: the stronger, the rarer, weak ones appear more often. Half as many full jerry cans.\n• The last round of a magazine always counts.\n\nWorld\n• Zone 51: killed zombies and patrols come back after 40 minutes.\n• Village jobs: the opening shots stay longer so you can read them.\n\nFixed\n• False \"connection lost\" lines in chat, falling through at the arena ladder, the icebreaker (you could see through the hull), the weapon repair kit.",
+        "es": "ALPHA 6.0.1 «El oso errante» ya está en el servidor.\n\nEl oso errante\n• Cada 5 horas el oso errante aparece en su guarida. La guarida siempre está marcada en el mapa y todos ven una línea roja en el chat.\n• Enorme, rápido y listo: rodea los coches, los embiste, da vueltas y entra por el lado. El coche no te salvará.\n• Jefe para solitarios o parejas. Lleva mucha munición, los calibres grandes lo abaten bastante antes. No se puede matar desde un coche ni desde lejos.\n• El botín está dentro del cadáver, ábrelo con la tecla de botín: carne cruda, medicina, munición, un arma pesada. A veces una tarjeta roja.\n\nHabilidades\n• El menú de habilidades ahora está en F2, la tecla M queda libre. Las insignias de rango se redibujaron.\n• Experiencia por zombis: más de 80 por hora pagan menos.\n\nArmas y botín\n• La Milkor recarga todo el tambor en 3 segundos.\n• Armas en los puntos: cuanto más fuertes, más raras; las débiles aparecen más a menudo. La mitad de bidones llenos.\n• La última bala del cargador siempre cuenta.\n\nMundo\n• Zona 51: los zombis y patrullas muertos vuelven a los 40 minutos.\n• Trabajos del pueblo: las primeras escenas duran más para poder leerlas.\n\nCorregido\n• Falsos «conexión perdida» en el chat, caída en la escalera de la arena, el rompehielos (se veía a través del casco), el kit de reparación de armas.",
+        "pt-BR": "ALPHA 6.0.1 «O urso errante» já está no servidor.\n\nO urso errante\n• A cada 5 horas o urso errante aparece na toca. A toca está sempre marcada no mapa e todos veem uma linha vermelha no chat.\n• Enorme, rápido e esperto: contorna carros, bate neles, dá voltas e vem pelo lado. O carro não salva.\n• Chefe para quem joga sozinho ou em dupla. Leve muita munição, calibres grandes derrubam bem mais rápido. Não dá para matar de dentro do carro nem de longe.\n• O saque está dentro da carcaça, abra com a tecla de saque: carne crua, medicina, munição, uma arma pesada. Às vezes um cartão vermelho.\n\nHabilidades\n• O menu de habilidades agora fica em F2, a tecla M ficou livre. Os emblemas de patente foram redesenhados.\n• Experiência por zumbis: acima de 80 por hora paga menos.\n\nArmas e saque\n• A Milkor recarrega o tambor inteiro em 3 segundos.\n• Armas nos pontos: quanto mais fortes, mais raras; as fracas aparecem mais. Metade dos galões cheios.\n• A última bala do pente sempre conta.\n\nMundo\n• Zona 51: zumbis e patrulhas mortos voltam em 40 minutos.\n• Trabalhos da vila: as primeiras cenas duram mais, dá para ler.\n\nCorrigido\n• Falsos «conexão perdida» no chat, queda na escada da arena, o quebra-gelo (dava para ver através do casco), o kit de conserto de armas."
+      }
+    },
+    {
+      "id": "update-2026-11-24-alpha60",
+      "date": "2026-11-24",
+      "pinned": false,
       "title": {
         "ru": "ALPHA 6.0: пролог, навыки, деревня рыбаков, новая сборка игры",
         "en": "ALPHA 6.0: prologue, skills, fishing village, new game build",
@@ -588,5 +605,5 @@
       }
     }
   ],
-  "signedAt": "2026-11-24T12:55:39Z"
+  "signedAt": "2026-11-24T18:00:25Z"
 }
