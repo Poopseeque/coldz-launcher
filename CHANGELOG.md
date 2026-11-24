@@ -3,6 +3,17 @@
 Новые версии сверху. Первая строка записи: текст для `npm run release -- -Notes "…"` (он попадает в `latest.json`
 и в описание выпуска на GitHub), ниже подробности. Порядок выпуска: README, раздел 5, и `docs/ПРАВИЛА.md`.
 
+## 0.5.8
+
+- Новости и новые версии лаунчер теперь проверяет сам, даже если он свёрнут в трей. «Играть» открывает именно ваш FiveM, а не клиент другого проекта.
+- EN: The launcher now checks news and new versions by itself, even when it is hidden in the tray. Play opens your own FiveM, not another project's client.
+- ES: El lanzador ahora comprueba las noticias y las versiones nuevas por sí solo, aunque esté en la bandeja. Jugar abre tu propio FiveM, no el cliente de otro proyecto.
+- PT-BR: O launcher agora verifica as notícias e as versões novas sozinho, mesmo na bandeja. Jogar abre o seu próprio FiveM, não o cliente de outro projeto.
+- Подробнее: `ui/app.js refreshFeed`: новости раз в 30 минут и при открытии окна (если старше 10 минут), обновление раз в 3 часа и при
+  открытии окна (если старше 30 минут). До 0.5.8 спрашивали только при запуске, и в трее новая версия не появлялась.
+- `fivem.rs ensure_link_handler`: обработчик fivem:// доверяем, только если он ведёт на найденный FiveM.exe (`same_exe`); чужой
+  переписываем на наш для текущего пользователя, строка в `fivem-search.log` (24.11: игроков уводило на другой сервер).
+
 ## 0.5.7
 
 - «Играть» теперь всё решает сама: если вход в FiveM у провайдера не отвечает, лаунчер без вопросов подключает через сервер COLDZ. Windows спросит разрешение один раз: нажмите «Да».
