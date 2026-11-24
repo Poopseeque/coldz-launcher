@@ -1,6 +1,6 @@
 [package]
 name = "coldz-launcher"
-version = "0.5.8"
+version = "0.5.9"
 description = "COLDZ launcher: starts FiveM and connects to the COLDZ server"
 authors = ["COLDZ"]
 edition = "2021"
@@ -45,7 +45,7 @@ winreg = "0.55"
 # (UI_Controls_Dialogs), shortcut paths in the ANSI code page (Globalization)
 # 0.5.7 (hosts.rs): the elevated copy that stays: events (Security), a hidden window (Graphics_Gdi, System_LibraryLoader),
 # the system folder (System_SystemInformation)
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_System_SystemInformation", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Ioctl", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_System_Com", "Win32_UI_Controls_Dialogs", "Win32_Globalization"] }
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_System_SystemInformation", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Ioctl", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_System_Com", "Win32_UI_Controls_Dialogs", "Win32_Globalization", "Win32_Security_WinTrust", "Win32_Security_Cryptography"] }
 
 [profile.release]
 codegen-units = 1

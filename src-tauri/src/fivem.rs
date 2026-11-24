@@ -54,6 +54,10 @@ pub trait Sources {
     fn folders(&self) -> Vec<Hint>;
     /// FiveM.lnk shortcuts (paths of .lnk files that exist).
     fn shortcuts(&self) -> Vec<Hint>;
+    /// How much a found FiveM.exe is trusted (0.5.9). The real PC asks the file; a test answers for it.
+    fn trust(&self, exe: &Path) -> Trust {
+        trust_of(exe)
+    }
 }
 
 fn is_named(p: &Path, name: &str) -> bool {
@@ -147,13 +151,173 @@ pub fn path_from_command(cmd: &str) -> Option<PathBuf> {
     (!t.is_empty()).then(|| PathBuf::from(t))
 }
 
+// ---------------------------------------------------------------- is this FiveM.exe really FiveM?
+
+/// How much the launcher trusts a file named FiveM.exe.
+///
+/// 24.11.2026: `FiveM.exe` is just a name, and any FiveM-based project may ship its own client under it. Players with
+/// another project's client installed were started into THAT project: its client takes our
+/// `fivem://connect/<our address>` and joins its own server instead. Comparing paths does not catch this, because the
+/// search itself starts at the fivem:// registry entry — the foreign client is then both what we found and what the
+/// handler points at, and the two agree. So ask the file itself.
+///
+/// What we ask: Cfx.re's own version info (`CompanyName` = Cfx.re, `OriginalFilename` = CitizenMP.exe, FiveM's
+/// internal name) and whether the Authenticode signature verifies (the real client is signed by Rockstar Games through
+/// DigiCert). Version info alone is forgeable, a valid signature alone says nothing about who signed it; together they
+/// are enough in practice, because a modified client cannot keep Rockstar's signature valid. We do not read the
+/// certificate subject: that needs the whole CryptQueryObject dance for little gain here.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Trust {
+    /// Cfx.re's FiveM: version info says so and the signature verifies.
+    Genuine,
+    /// Version info says FiveM, but the signature did not verify. An old Windows without current roots does this to an
+    /// honest player, so such a file is still used — just not preferred.
+    Unverified,
+    /// Someone else's program under the name FiveM.exe. The text says what its version info claims to be.
+    Foreign(String),
+}
+
+impl Trust {
+    /// For fivem-search.log.
+    pub fn why(&self) -> String {
+        match self {
+            Trust::Genuine => "подлинный (Cfx.re, подпись в порядке)".into(),
+            Trust::Unverified => "похож на FiveM, но подпись не проверилась".into(),
+            Trust::Foreign(what) => format!("чужой клиент: {what}"),
+        }
+    }
+}
+
+/// Cfx.re's values in FiveM.exe version info.
+const CFX_COMPANY: &str = "Cfx.re";
+const CFX_ORIGINAL: &str = "CitizenMP.exe";
+
+/// Asks the file what it is. Never fails loudly: anything unreadable counts as not verified rather than foreign, so a
+/// quirk of one PC cannot keep a player out of the game.
+#[cfg(windows)]
+pub fn trust_of(exe: &Path) -> Trust {
+    let (company, original) = match version_strings(exe) {
+        Some(v) => v,
+        // Every real FiveM.exe carries version info, so a file without any is not one — but say only what we saw.
+        None => return Trust::Foreign("без сведений о версии".into()),
+    };
+    let looks_like_fivem = company.eq_ignore_ascii_case(CFX_COMPANY) || original.eq_ignore_ascii_case(CFX_ORIGINAL);
+    if !looks_like_fivem {
+        let what = if company.is_empty() { original } else { company };
+        return Trust::Foreign(what);
+    }
+    if signature_verifies(exe) {
+        Trust::Genuine
+    } else {
+        Trust::Unverified
+    }
+}
+
+#[cfg(not(windows))]
+pub fn trust_of(_exe: &Path) -> Trust {
+    Trust::Unverified
+}
+
+/// `CompanyName` and `OriginalFilename` from a file's version info (an empty string for a value that is missing).
+#[cfg(windows)]
+fn version_strings(exe: &Path) -> Option<(String, String)> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW};
+
+    let wide: Vec<u16> = exe.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    let mut handle: u32 = 0;
+    let size = unsafe { GetFileVersionInfoSizeW(wide.as_ptr(), &mut handle) };
+    if size == 0 {
+        return None;
+    }
+    let mut data = vec![0u8; size as usize];
+    if unsafe { GetFileVersionInfoW(wide.as_ptr(), handle, size, data.as_mut_ptr().cast()) } == 0 {
+        return None;
+    }
+
+    // Which language block holds the strings: \VarFileInfo\Translation is pairs of u16 (language, code page).
+    let key: Vec<u16> = "\\VarFileInfo\\Translation".encode_utf16().chain(std::iter::once(0)).collect();
+    let mut ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+    let mut len: u32 = 0;
+    let (lang, page) =
+        if unsafe { VerQueryValueW(data.as_ptr().cast(), key.as_ptr(), &mut ptr, &mut len) } != 0 && len >= 4 {
+            let pair = unsafe { std::slice::from_raw_parts(ptr as *const u16, 2) };
+            (pair[0], pair[1])
+        } else {
+            // English (US), Unicode: what FiveM itself uses.
+            (0x0409u16, 0x04b0u16)
+        };
+
+    let one = |name: &str| -> String {
+        let key: Vec<u16> = format!("\\StringFileInfo\\{lang:04x}{page:04x}\\{name}")
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+        let mut ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+        let mut len: u32 = 0;
+        if unsafe { VerQueryValueW(data.as_ptr().cast(), key.as_ptr(), &mut ptr, &mut len) } == 0 || len == 0 {
+            return String::new();
+        }
+        // len counts characters, the trailing zero included.
+        let chars = unsafe { std::slice::from_raw_parts(ptr as *const u16, len as usize) };
+        let chars = chars.split(|c| *c == 0).next().unwrap_or(&[]);
+        String::from_utf16_lossy(chars).trim().to_string()
+    };
+
+    Some((one("CompanyName"), one("OriginalFilename")))
+}
+
+/// Does the file's Authenticode signature verify? Without the network: a player on a provider that cuts foreign
+/// services (the very case this launcher exists for) must not wait on a revocation request, so revocation is not
+/// checked and only cached URLs are used.
+#[cfg(windows)]
+fn signature_verifies(exe: &Path) -> bool {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Security::WinTrust::{
+        WinVerifyTrust, WINTRUST_ACTION_GENERIC_VERIFY_V2, WINTRUST_DATA, WINTRUST_DATA_0, WINTRUST_FILE_INFO,
+        WTD_CACHE_ONLY_URL_RETRIEVAL, WTD_CHOICE_FILE, WTD_REVOKE_NONE, WTD_STATEACTION_CLOSE,
+        WTD_STATEACTION_VERIFY, WTD_UI_NONE,
+    };
+
+    let wide: Vec<u16> = exe.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    let mut file = WINTRUST_FILE_INFO {
+        cbStruct: std::mem::size_of::<WINTRUST_FILE_INFO>() as u32,
+        pcwszFilePath: wide.as_ptr(),
+        hFile: std::ptr::null_mut(),
+        pgKnownSubject: std::ptr::null_mut(),
+    };
+    let mut data: WINTRUST_DATA = unsafe { std::mem::zeroed() };
+    data.cbStruct = std::mem::size_of::<WINTRUST_DATA>() as u32;
+    data.dwUIChoice = WTD_UI_NONE;
+    data.fdwRevocationChecks = WTD_REVOKE_NONE;
+    data.dwUnionChoice = WTD_CHOICE_FILE;
+    data.dwStateAction = WTD_STATEACTION_VERIFY;
+    data.dwProvFlags = WTD_CACHE_ONLY_URL_RETRIEVAL;
+    data.Anonymous = WINTRUST_DATA_0 { pFile: &mut file };
+
+    let mut action = WINTRUST_ACTION_GENERIC_VERIFY_V2;
+    let ok =
+        unsafe { WinVerifyTrust(std::ptr::null_mut(), &mut action, (&mut data as *mut WINTRUST_DATA).cast()) } == 0;
+
+    // Let WinVerifyTrust free what it kept, whatever the answer was.
+    data.dwStateAction = WTD_STATEACTION_CLOSE;
+    unsafe { WinVerifyTrust(std::ptr::null_mut(), &mut action, (&mut data as *mut WINTRUST_DATA).cast()) };
+    ok
+}
+
 /// Looks for FiveM in the order above. Returns what was found and the trace (one line per place looked at).
+///
+/// 0.5.9: a file named FiveM.exe is not proof any more (see `Trust`). A genuine client wins as soon as it is seen; if
+/// none is genuine, the old order decides, preferring a file that at least looks like FiveM over someone else's
+/// client — an old Windows can fail to verify an honest signature, and that must not keep a player out of the game.
+/// The player's own choice is never overruled.
 pub fn search(src: &dyn Sources) -> (Option<Found>, Vec<String>) {
     let mut trace = Vec::new();
     match src.manual() {
         Some(p) => match resolve(&p) {
             Some(exe) => {
-                trace.push(format!("вручную: {} -> найден", p.display()));
+                let trust = src.trust(&exe);
+                trace.push(format!("вручную: {} -> найден, {}", p.display(), trust.why()));
                 return (Some(Found { path: exe, stage: "manual", from: p.display().to_string() }), trace);
             }
             None => trace.push(format!("вручную: {} -> нет FiveM.exe", p.display())),
@@ -166,6 +330,8 @@ pub fn search(src: &dyn Sources) -> (Option<Found>, Vec<String>) {
         ("folder", &|| src.folders()),
         ("shortcut", &|| src.shortcuts()),
     ];
+    // Everything that is not genuine, in the order found, to choose between once every place has been looked at.
+    let mut rest: Vec<(Found, Trust)> = Vec::new();
     for (stage, hints) in stages {
         let list = hints();
         if list.is_empty() {
@@ -177,16 +343,38 @@ pub fn search(src: &dyn Sources) -> (Option<Found>, Vec<String>) {
             } else {
                 path_from_command(&h.value).into_iter().collect()
             };
-            let hit = paths.iter().find_map(|p| resolve(p));
-            match &hit {
-                Some(exe) => trace.push(format!("{} {}: {} -> найден {}", stage_name(stage), h.from, h.value, exe.display())),
-                None if paths.is_empty() => trace.push(format!("{} {}: {} -> не прочитать", stage_name(stage), h.from, h.value)),
-                None => trace.push(format!("{} {}: {} -> нет FiveM.exe", stage_name(stage), h.from, h.value)),
+            let Some(exe) = paths.iter().find_map(|p| resolve(p)) else {
+                if paths.is_empty() {
+                    trace.push(format!("{} {}: {} -> не прочитать", stage_name(stage), h.from, h.value));
+                } else {
+                    trace.push(format!("{} {}: {} -> нет FiveM.exe", stage_name(stage), h.from, h.value));
+                }
+                continue;
+            };
+            let trust = src.trust(&exe);
+            trace.push(format!(
+                "{} {}: {} -> найден {}, {}",
+                stage_name(stage),
+                h.from,
+                h.value,
+                exe.display(),
+                trust.why()
+            ));
+            let found = Found { path: exe, stage, from: h.from };
+            if trust == Trust::Genuine {
+                return (Some(found), trace);
             }
-            if let Some(exe) = hit {
-                return (Some(Found { path: exe, stage, from: h.from }), trace);
-            }
+            rest.push((found, trust));
         }
+    }
+    let pick = rest
+        .iter()
+        .position(|(_, t)| *t == Trust::Unverified)
+        .or(if rest.is_empty() { None } else { Some(0) });
+    if let Some(i) = pick {
+        let (found, trust) = rest.swap_remove(i);
+        trace.push(format!("подлинного FiveM.exe не нашлось, беру {} ({})", found.path.display(), trust.why()));
+        return (Some(found), trace);
     }
     trace.push("FiveM.exe не найден".into());
     (None, trace)
@@ -769,6 +957,95 @@ mod tests {
         std::fs::write(p, b"MZ").unwrap();
     }
 
+    /// Two clients named FiveM.exe: a foreign one in the registry (where the search starts) and the real one in its
+    /// folder.
+    fn two_clients(name: &str) -> (PathBuf, PathBuf, PathBuf) {
+        let d = tmp(name);
+        let foreign = d.join("Other").join("FiveM.exe");
+        let real = d.join("FiveM").join("FiveM.exe");
+        touch(&foreign);
+        touch(&real);
+        (d, foreign, real)
+    }
+
+    // 24.11.2026: players with another project's client installed were started into THAT project. The fivem:// registry
+    // entry is shared by every FiveM-based project and the search starts there, so being found first means nothing.
+    #[test]
+    fn a_genuine_client_wins_over_a_foreign_one_found_first() {
+        let (d, foreign, real) = two_clients("genuine-wins");
+        let mut src = empty();
+        src.registry = vec![Hint::new("HKCU fivem", handler_command(&foreign))];
+        src.folders = vec![Hint::new("LOCALAPPDATA", real.display().to_string())];
+        src.trust = vec![(foreign, Trust::Foreign("D9 Launcher".into())), (real.clone(), Trust::Genuine)];
+        let (found, trace) = search(&src);
+        let found = found.expect("FiveM.exe not found");
+        assert_eq!(found.path, real);
+        assert_eq!(found.stage, "folder");
+        assert!(trace.iter().any(|l| l.contains("чужой клиент: D9 Launcher")), "{trace:?}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    // An old Windows without current roots fails to verify an honest signature. Such a file is still preferred over
+    // someone else's client, so the player gets into the game.
+    #[test]
+    fn without_a_genuine_one_a_lookalike_beats_a_foreign_client() {
+        let (d, foreign, real) = two_clients("lookalike-wins");
+        let mut src = empty();
+        src.registry = vec![Hint::new("HKCU fivem", handler_command(&foreign))];
+        src.folders = vec![Hint::new("LOCALAPPDATA", real.display().to_string())];
+        src.trust = vec![(foreign, Trust::Foreign("D9 Launcher".into())), (real.clone(), Trust::Unverified)];
+        let (found, trace) = search(&src);
+        let found = found.expect("FiveM.exe not found");
+        assert_eq!(found.path, real);
+        assert!(trace.iter().any(|l| l.contains("подлинного FiveM.exe не нашлось")), "{trace:?}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    // Only a foreign client on the PC: still start it rather than refuse to play, and say so in the log — the player
+    // may have a custom build we know nothing about.
+    #[test]
+    fn only_a_foreign_client_still_starts_the_game() {
+        let (d, foreign, _real) = two_clients("foreign-only");
+        let mut src = empty();
+        src.registry = vec![Hint::new("HKCU fivem", handler_command(&foreign))];
+        src.trust = vec![(foreign.clone(), Trust::Foreign("D9 Launcher".into()))];
+        let (found, trace) = search(&src);
+        let found = found.expect("FiveM.exe not found");
+        assert_eq!(found.path, foreign);
+        assert!(trace.iter().any(|l| l.contains("подлинного FiveM.exe не нашлось")), "{trace:?}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    // «Choose FiveM.exe manually» is the player's own word and beats every check.
+    #[test]
+    fn the_players_own_choice_is_never_overruled() {
+        let (d, foreign, real) = two_clients("manual-wins");
+        let mut src = empty();
+        src.manual = Some(foreign.clone());
+        src.folders = vec![Hint::new("LOCALAPPDATA", real.display().to_string())];
+        src.trust = vec![(foreign.clone(), Trust::Foreign("D9 Launcher".into())), (real, Trust::Genuine)];
+        let (found, trace) = search(&src);
+        let found = found.expect("FiveM.exe not found");
+        assert_eq!(found.path, foreign);
+        assert_eq!(found.stage, "manual");
+        assert!(trace.iter().any(|l| l.starts_with("вручную:")), "{trace:?}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    // The real client on this PC, if FiveM is installed: version info is Cfx.re's and the signature verifies. Skipped
+    // when there is no FiveM here, so the test suite stays green on a build machine.
+    #[cfg(windows)]
+    #[test]
+    fn the_real_fivem_on_this_pc_is_genuine() {
+        let Some(local) = std::env::var_os("LOCALAPPDATA") else { return };
+        let exe = PathBuf::from(local).join("FiveM").join(EXE);
+        if !exe.is_file() {
+            return;
+        }
+        assert_eq!(trust_of(&exe), Trust::Genuine, "{}", exe.display());
+    }
+
+
     // 16.11.2026: «explorer.exe — Приложение не найдено» — the fivem:// handler led to a FiveM.exe that is gone
     #[test]
     fn tells_a_working_link_handler_from_a_broken_one() {
@@ -862,6 +1139,8 @@ mod tests {
         processes: Vec<Hint>,
         folders: Vec<Hint>,
         shortcuts: Vec<Hint>,
+        /// 0.5.9: what `trust` answers for a path (a test cannot sign a file).
+        trust: Vec<(PathBuf, Trust)>,
     }
 
     impl Sources for Fake {
@@ -880,10 +1159,13 @@ mod tests {
         fn shortcuts(&self) -> Vec<Hint> {
             self.shortcuts.clone()
         }
+        fn trust(&self, exe: &Path) -> Trust {
+            self.trust.iter().find(|(p, _)| p.as_path() == exe).map(|(_, t)| t.clone()).unwrap_or(Trust::Unverified)
+        }
     }
 
     fn empty() -> Fake {
-        Fake { manual: None, registry: vec![], processes: vec![], folders: vec![], shortcuts: vec![] }
+        Fake { manual: None, registry: vec![], processes: vec![], folders: vec![], shortcuts: vec![], trust: vec![] }
     }
 
     #[test]
