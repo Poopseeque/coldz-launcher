@@ -815,6 +815,10 @@
       } else if (err === "fivem_stuck") {
         holdMs = 0;
         showFivemMessage("fivem_stuck", 120000, true);
+      } else if (err === "link_blocked") {
+        // 25.11.2026: ссылку fivem:// открыть нечем (её забрал чужой лаунчер). FiveM.exe с параметром мы больше не
+        // запускаем: игра так не стартует и держит сессию Cfx. Игроку — запустить FiveM самому и войти по адресу
+        showFivemMessage("link_blocked", 120000, true);
       } else {
         showFivemMessage("launch_failed", 20000);
       }

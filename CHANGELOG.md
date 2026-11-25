@@ -3,6 +3,21 @@
 Новые версии сверху. Первая строка записи: текст для `npm run release -- -Notes "…"` (он попадает в `latest.json`
 и в описание выпуска на GitHub), ниже подробности. Порядок выпуска: README, раздел 5, и `docs/ПРАВИЛА.md`.
 
+## 0.5.10
+
+- «Играть» больше не запускает FiveM так, как игра не разрешает: если ссылку fivem:// забрал лаунчер другого проекта, лаунчер скажет об этом и подскажет адрес, а не уронит игру.
+- EN: Play no longer starts FiveM in a way the game refuses: if another project's launcher took over the fivem:// link, the launcher says so and shows the address instead of crashing the game.
+- ES: Jugar ya no inicia FiveM de una forma que el juego rechaza: si el launcher de otro proyecto se quedó con el enlace fivem://, el launcher lo dice y muestra la dirección en vez de tumbar el juego.
+- PT-BR: Jogar já não inicia o FiveM de um jeito que o jogo recusa: se o launcher de outro projeto ficou com o link fivem://, o launcher avisa e mostra o endereço em vez de derrubar o jogo.
+- Зачем: крашдамп игрока 25.11 (`adhesive.dll+DC52AF`, окно «This application should be launched directly from the shell
+  or a web browser»). У «Играть» был запасной путь `FiveM.exe "<ссылка>"`, когда обработчик `fivem://` чужой и починить
+  его не вышло. Игра так не стартует: падает и оставляет открытой сессию Cfx, из-за чего следующий вход даёт
+  «Your account is already being used». В правилах это и было записано («FiveM.exe с параметрами нельзя»), но запасной
+  путь остался с ранних версий.
+- `lib.rs play`: путь один — отдать ссылку `explorer.exe`. Не вышло: строка в `fivem-search.log` (свой обработчик или
+  чужой) и ошибка `link_blocked` окну. Окно показывает, что делать: запустить FiveM самому и войти `connect <адрес>`
+  (или «Скопировать адрес»). Тексты на 4 языках, без длинных тире.
+
 ## 0.5.9
 
 - «Играть» теперь проверяет, что открывает настоящий FiveM: клиент другого проекта под именем FiveM.exe больше не уведёт вас на чужой сервер.

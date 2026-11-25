@@ -796,7 +796,9 @@ fn sync_game_build(app: &AppHandle, exe: &std::path::Path, address: &str) -> boo
 }
 
 /// Starts the real FiveM client and tells it to join our server (running.rs: not a second time).
-/// Errors for the UI: no_address, fivem_missing, fivem_stuck (FiveM processes without a game window), launch_failed.
+/// Errors for the UI: no_address, fivem_missing, fivem_stuck (FiveM processes without a game window), launch_failed,
+/// link_blocked (25.11.2026: the fivem:// link could not be handed to the shell; we never start FiveM.exe with
+/// the link ourselves — the game refuses and its Cfx session stays open).
 #[tauri::command]
 fn play(app: AppHandle) -> Result<PlayResult, String> {
     // 0.3.5: the route chosen right before (choose_route): the main server or a reserve route
@@ -862,28 +864,29 @@ fn play(app: AppHandle) -> Result<PlayResult, String> {
         if handler_ok && std::process::Command::new(&explorer).arg(&url).spawn().is_ok() {
             return Ok(PlayResult { action, build });
         }
+        // 25.11.2026 (a player's crash dump: adhesive.dll, «This application should be launched directly from the
+        // shell or a web browser»): no fallback to `FiveM.exe "<link>"` any more. That call is exactly what the
+        // check refuses: the game dies and the Cfx session it opened keeps the account busy, so the next attempt
+        // gets «Your account is already being used». docs/ПРАВИЛА.md: FiveM.exe with parameters is not allowed.
+        // Could not hand the link to the shell — say so: the player starts FiveM himself and joins by address.
+        if let Some(log) = search_log_path(&app) {
+            fivem::write_log(&log, "«Играть»: ссылку fivem:// открыть нечем", &[
+                if handler_ok {
+                    "обработчик свой, но explorer.exe не запустился".to_string()
+                } else {
+                    "обработчик fivem:// чужой или сломан, починить его не вышло".to_string()
+                },
+                format!("FiveM.exe с параметром не запускаем: игра так не стартует (adhesive). Адрес: {address}"),
+            ]);
+        }
+        return Err("link_blocked".into());
     }
-    // Fallback: `FiveM.exe "<link>"` directly (works on FiveM builds without the parent check).
-    let mut cmd = std::process::Command::new(&exe);
-    cmd.arg(&url);
-    if let Some(dir) = exe.parent() {
-        cmd.current_dir(dir);
-    }
-    #[cfg(windows)]
+    #[cfg(not(windows))]
     {
-        use std::os::windows::process::CommandExt;
-        const DETACHED_PROCESS: u32 = 0x0000_0008;
-        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-        cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
-    }
-    match cmd.spawn() {
-        Ok(_) => Ok(PlayResult { action, build }),
-        // Fall back to the registered fivem:// link handler.
-        Err(_) => app
-            .opener()
+        app.opener()
             .open_url(&url, None::<&str>)
             .map(|_| PlayResult { action, build })
-            .map_err(|_| "launch_failed".into()),
+            .map_err(|_| "launch_failed".to_string())
     }
 }
 
