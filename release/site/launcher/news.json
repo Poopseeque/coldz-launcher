@@ -139,9 +139,26 @@
   ],
   "items": [
     {
+      "id": "update-2026-11-25-alpha602",
+      "date": "2026-11-25",
+      "pinned": true,
+      "title": {
+        "ru": "ALPHA 6.0.2: обмен, аккумулятор, конвой",
+        "en": "ALPHA 6.0.2: trading, battery, convoy",
+        "es": "ALPHA 6.0.2: intercambio, batería, convoy",
+        "pt-BR": "ALPHA 6.0.2: troca, bateria, comboio"
+      },
+      "body": {
+        "ru": "ALPHA 6.0.2 на сервере.\n\nБой\n• Рукопашка по зомби снова работает: нож и кулаки снимают кровь как надо.\n• Дальность оружия больше: попадания засчитываются почти до километра (автоматы и пулемёты 1000 м, ПП 600 м, пистолеты 400 м).\n• Числа снятой крови над целью теперь включены у всех. Выключить можно в F2 › Настройки.\n• Медведь-шатун: попадания в погоне больше не пропадают, над тушей видна полоса здоровья.\n\nМашины\n• У техники появился заряд аккумулятора. Стоит без дела — садится за сутки, едешь — за 20 минут полный.\n• Сел совсем: подгони вторую машину вплотную, не глуши её, в меню машины «Прикурить от машины», 12 секунд. Проводов в инвентаре не нужно.\n• Урон от аварий вдвое меньше. Урон от падения вдвое меньше и теперь считается по высоте.\n\nОбмен\n• Обмен вещами между игроками: подойди к игроку, G › «Обмен». Оба кладут вещи и жмут «Готов». Отошёл дальше трёх метров или сел в машину — обмен рвётся.\n\nМир и события\n• Два новых события: гуманитарный конвой (много еды, оружие редко) и груз с упавшего беспилотника.\n• Зелёная зона: оружие теперь не достаётся совсем, враждебному вход закрыт 30 минут вместо часа, охрана достаёт его и в 8 метрах вокруг зоны.\n• Аирдроп больше не остаётся висеть на столбе: ящик опускается на землю.\n\nПролог\n• Ворота базы в задании открываются обратно, через забор прыгать не надо. У вертолётов в заставке крутятся винты.",
+        "en": "ALPHA 6.0.2 is live.\n\nCombat\n• Melee against zombies works again: the knife and fists take blood as they should.\n• Weapons reach further: hits count out to almost a kilometre (rifles and machine guns 1000 m, SMGs 600 m, pistols 400 m).\n• Damage numbers above the target are on for everyone now. Turn them off in F2 › Settings.\n• The rogue bear: hits during the chase no longer get lost, and a health bar shows above the beast.\n\nVehicles\n• Every vehicle now has a battery charge. Left standing it drains in about a day; driving fills it in 20 minutes.\n• Fully dead: bring a second car close, leave its engine running, pick \"Jump-start\" in the vehicle menu, 12 seconds. No cables needed in the inventory.\n• Crash damage is halved. Fall damage is halved and now scales with height.\n\nTrading\n• Item trading between players: walk up to a player, G › \"Trade\". Both put items in and press \"Ready\". Step more than three metres away or get into a car and the trade breaks off.\n\nWorld and events\n• Two new events: the humanitarian convoy (lots of food, weapons are rare) and the cargo of a crashed drone.\n• Green zone: weapons can no longer be drawn at all, a hostile is barred for 30 minutes instead of an hour, and the guards reach him up to 8 metres outside the zone.\n• The airdrop no longer hangs on a pole: the crate settles on the ground.\n\nPrologue\n• The base gate in the task opens again, no need to jump the fence. The helicopter rotors in the intro spin.",
+        "es": "ALPHA 6.0.2 ya está en el servidor.\n\nCombate\n• El cuerpo a cuerpo contra zombis vuelve a funcionar: el cuchillo y los puños quitan sangre como deben.\n• Las armas alcanzan más lejos: los impactos cuentan casi hasta un kilómetro (fusiles y ametralladoras 1000 m, subfusiles 600 m, pistolas 400 m).\n• Los números de daño sobre el objetivo están activados para todos. Se desactivan en F2 › Ajustes.\n• El oso errante: los impactos durante la persecución ya no se pierden y sobre el cuerpo se ve una barra de salud.\n\nVehículos\n• Cada vehículo tiene carga de batería. Parado se descarga en un día; conduciendo se llena en 20 minutos.\n• Si se agota: acerca otro coche, déjalo en marcha, elige «Hacer el puente» en el menú del vehículo, 12 segundos. No hacen falta cables en el inventario.\n• El daño por choques se reduce a la mitad. El daño por caída se reduce a la mitad y ahora depende de la altura.\n\nIntercambio\n• Intercambio de objetos entre jugadores: acércate a un jugador, G › «Intercambio». Los dos ponen objetos y pulsan «Listo». Si te alejas más de tres metros o subes a un coche, el intercambio se rompe.\n\nMundo y eventos\n• Dos eventos nuevos: el convoy humanitario (mucha comida, las armas son raras) y la carga de un dron estrellado.\n• Zona verde: ya no se puede sacar el arma en absoluto, al hostil se le cierra la entrada 30 minutos en vez de una hora y la guardia lo alcanza hasta 8 metros alrededor de la zona.\n• El airdrop ya no se queda colgado en un poste: la caja baja al suelo.\n\nPrólogo\n• La puerta de la base en la misión vuelve a abrirse, no hace falta saltar la valla. Las hélices de los helicópteros del inicio giran.",
+        "pt-BR": "ALPHA 6.0.2 já está no servidor.\n\nCombate\n• O corpo a corpo contra zumbis voltou a funcionar: a faca e os punhos tiram sangue como devem.\n• As armas alcançam mais longe: os acertos contam quase até um quilómetro (fuzis e metralhadoras 1000 m, submetralhadoras 600 m, pistolas 400 m).\n• Os números de dano sobre o alvo estão ligados para todos. Dá para desligar em F2 › Ajustes.\n• O urso errante: os acertos durante a perseguição já não se perdem e sobre o corpo aparece uma barra de vida.\n\nVeículos\n• Cada veículo tem carga de bateria. Parado descarrega em cerca de um dia; a conduzir enche em 20 minutos.\n• Se acabar: traz outro carro para perto, deixa-o a trabalhar, escolhe «Ligação direta» no menu do veículo, 12 segundos. Não são precisos cabos no inventário.\n• O dano das colisões caiu para metade. O dano de queda caiu para metade e agora depende da altura.\n\nTroca\n• Troca de itens entre jogadores: aproxima-te de um jogador, G › «Troca». Os dois põem itens e carregam em «Pronto». Se te afastares mais de três metros ou entrares num carro, a troca quebra.\n\nMundo e eventos\n• Dois eventos novos: o comboio humanitário (muita comida, armas raramente) e a carga de um drone que caiu.\n• Zona verde: já não dá para sacar a arma de todo, o hostil fica barrado 30 minutos em vez de uma hora e a guarda alcança-o até 8 metros à volta da zona.\n• O airdrop já não fica pendurado num poste: a caixa assenta no chão.\n\nPrólogo\n• O portão da base na missão volta a abrir, não é preciso saltar a cerca. As hélices dos helicópteros da abertura rodam."
+      }
+    },
+    {
       "id": "update-2026-11-24-alpha601",
       "date": "2026-11-24",
-      "pinned": true,
+      "pinned": false,
       "title": {
         "ru": "ALPHA 6.0.1: Медведь-шатун",
         "en": "ALPHA 6.0.1: The Rogue Bear",
@@ -639,5 +656,5 @@
       }
     }
   ],
-  "signedAt": "2026-11-24T19:50:05Z"
+  "signedAt": "2026-11-25T02:52:30Z"
 }
