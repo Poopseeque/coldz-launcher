@@ -156,6 +156,23 @@
       }
     },
     {
+      "id": "launcher-0.5.10",
+      "date": "2026-11-25",
+      "pinned": false,
+      "title": {
+        "ru": "Лаунчер 0.5.10",
+        "en": "Launcher 0.5.10",
+        "es": "Lanzador 0.5.10",
+        "pt-BR": "Launcher 0.5.10"
+      },
+      "body": {
+        "ru": "Если ссылку fivem:// забрал лаунчер другого проекта, «Играть» больше не роняет игру. Раньше в этом случае FiveM закрывался сам, вход оставался занят, и дальше выскакивало «Your account is already being used». Теперь лаунчер прямо пишет, что делать, и показывает адрес сервера, чтобы войти вручную. Лаунчер обновится сам: если он давно открыт, закройте его из трея и запустите снова.",
+        "en": "If another project's launcher took over the fivem:// link, Play no longer crashes the game. Before that, FiveM closed itself, the session stayed busy and the next try showed \"Your account is already being used\". Now the launcher says what to do and shows the server address so you can join by hand. The launcher updates itself: if it has been open for days, quit it from the tray and start it again.",
+        "es": "Si el lanzador de otro proyecto se quedó con el enlace fivem://, Jugar ya no tumba el juego. Antes FiveM se cerraba solo, la sesión quedaba ocupada y luego salía «Your account is already being used». Ahora el lanzador dice qué hacer y muestra la dirección del servidor para entrar a mano. El lanzador se actualiza solo: si lleva días abierto, ciérralo desde la bandeja y ábrelo de nuevo.",
+        "pt-BR": "Se o launcher de outro projeto ficou com o link fivem://, Jogar já não derruba o jogo. Antes o FiveM fechava sozinho, a sessão ficava ocupada e depois aparecia «Your account is already being used». Agora o launcher diz o que fazer e mostra o endereço do servidor para entrar na mão. O launcher se atualiza sozinho: se está aberto há dias, feche pela bandeja e abra de novo."
+      }
+    },
+    {
       "id": "update-2026-11-25-alpha602",
       "date": "2026-11-25",
       "pinned": false,
@@ -673,5 +690,5 @@
       }
     }
   ],
-  "signedAt": "2026-11-25T17:41:01Z"
+  "signedAt": "2026-11-25T18:26:35Z"
 }
