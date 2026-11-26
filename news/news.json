@@ -139,9 +139,26 @@
   ],
   "items": [
     {
+      "id": "update-2026-11-26-alpha665",
+      "date": "2026-11-26",
+      "pinned": true,
+      "title": {
+        "ru": "ALPHA 6.6.5: мир после зимы",
+        "en": "ALPHA 6.6.5: the world after winter",
+        "es": "ALPHA 6.6.5: el mundo tras el invierno",
+        "pt-BR": "ALPHA 6.6.5: o mundo depois do inverno"
+      },
+      "body": {
+        "ru": "ALPHA 6.6.5 на сервере. Карта больше не пустая.\n\nМир\n• По всей карте брошенные машины, пробки, аварии, лагеря выживших, дворы, крыши, мусор и тела: Лос-Сантос, Сэнди, Грейпсид, трассы, горы.\n• На дорогах армейские и полицейские КПП, посты с вышками и полевые лагеря военных.\n• Несколько улиц завалены полностью, объезд рядом, пешком пройти можно.\n• Рощи и лес вдоль дорог и на холмах.\n• У магазинов брошенные машины с открытым багажником, под мостами лагеря.\n\nВажно\n• На машине проехать можно везде, где можно было раньше.\n• Лёгкие вещи (конусы, коробки, чемоданы) машина сбивает, об остовы и бетон бьётся.\n• Лута в этих сценах нет: это декорации.",
+        "en": "ALPHA 6.6.5 is live. The map is not empty anymore.\n\nWorld\n• Abandoned cars, traffic jams, crashes, survivor camps, yards, rooftops, litter and bodies all over the map: Los Santos, Sandy, Grapeseed, highways, mountains.\n• Army and police checkpoints on the roads, watchtower posts and military field camps.\n• A few streets are blocked completely, with a detour nearby; you can still pass on foot.\n• Groves and woods along the roads and on the hills.\n• Abandoned cars with open trunks at the shops, camps under the bridges.\n\nGood to know\n• You can still drive everywhere you could before.\n• Light things (cones, boxes, suitcases) get knocked away by a car, wrecks and concrete stop it.\n• There is no loot in these scenes: they are decoration.",
+        "es": "ALPHA 6.6.5 ya está en el servidor. El mapa ya no está vacío.\n\nMundo\n• Coches abandonados, atascos, accidentes, campamentos de supervivientes, patios, azoteas, basura y cuerpos por todo el mapa: Los Santos, Sandy, Grapeseed, autopistas, montañas.\n• Controles del ejército y de la policía en las carreteras, puestos con torres de vigilancia y campamentos militares.\n• Algunas calles están bloqueadas del todo, con un desvío cerca; a pie se puede pasar.\n• Arboledas y bosques junto a las carreteras y en las colinas.\n• Coches abandonados con el maletero abierto en las tiendas, campamentos bajo los puentes.\n\nImportante\n• Con el coche se pasa por todas partes por donde se pasaba antes.\n• Las cosas ligeras (conos, cajas, maletas) el coche las aparta, los restos y el hormigón lo paran.\n• En estas escenas no hay botín: son decorado.",
+        "pt-BR": "ALPHA 6.6.5 já está no servidor. O mapa não está mais vazio.\n\nMundo\n• Carros abandonados, engarrafamentos, acidentes, acampamentos de sobreviventes, quintais, telhados, lixo e corpos por todo o mapa: Los Santos, Sandy, Grapeseed, rodovias, montanhas.\n• Postos de controle do exército e da polícia nas estradas, postos com torres de vigia e acampamentos militares.\n• Algumas ruas estão bloqueadas de vez, com desvio por perto; a pé dá para passar.\n• Bosques e matas ao longo das estradas e nas colinas.\n• Carros abandonados com o porta-malas aberto nas lojas, acampamentos debaixo das pontes.\n\nBom saber\n• Dá para passar de carro em todo lugar onde dava antes.\n• Coisas leves (cones, caixas, malas) o carro derruba, destroços e concreto o param.\n• Nessas cenas não há loot: é cenário."
+      }
+    },
+    {
       "id": "update-2026-11-25-alpha603",
       "date": "2026-11-25",
-      "pinned": true,
+      "pinned": false,
       "title": {
         "ru": "ALPHA 6.0.3: работа над ошибками",
         "en": "ALPHA 6.0.3: fixes and polish",
@@ -690,5 +707,5 @@
       }
     }
   ],
-  "signedAt": "2026-11-25T18:26:35Z"
+  "signedAt": "2026-11-26T03:46:17Z"
 }
